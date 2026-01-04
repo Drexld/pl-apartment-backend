@@ -10,10 +10,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-//
-const DEEPL_API_KEY = '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx'; //
+// DeepL API key
+const DEEPL_API_KEY = process.env.DEEPL_API_KEY || '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx';
 
 // ---------- Helpers ----------
 
@@ -33,7 +33,7 @@ function parsePLNAmount(str) {
 
 async function translateToEnglish(text) {
   if (!text || !text.trim()) return '';
-  if (!DEEPL_API_KEY || DEEPL_API_KEY === 'YOUR_DEEPL_API_KEY_HERE') {
+  if (!DEEPL_API_KEY || DEEPL_API_KEY === '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx') {
     // Fallback: no key configured, just return original
     return text;
   }
@@ -58,34 +58,34 @@ async function translateToEnglish(text) {
   return translated || text;
 }
 
-// Icons + English labels for amenities
+// Icons + English labels for amenities (used mainly for backend-side description)
 const AMENITY_MAP = {
-  'taras': { icon: '🌴', en: 'terrace' },
-  'balkon': { icon: '🏙️', en: 'balcony' },
-  'pom. użytkowe': { icon: '📦', en: 'utility room' },
-  'pom. użytkowy': { icon: '📦', en: 'utility room' },
-  'meble': { icon: '🛋️', en: 'furniture' },
-  'pralka': { icon: '🧺', en: 'washing machine' },
-  'zmywarka': { icon: '🍽️', en: 'dishwasher' },
-  'lodówka': { icon: '🧊', en: 'refrigerator' },
-  'kuchenka': { icon: '🍳', en: 'stove' },
-  'piekarnik': { icon: '🔥', en: 'oven' },
-  'telewizor': { icon: '📺', en: 'tv' },
-  'klimatyzacja': { icon: '❄️', en: 'air conditioning' },
-  'rolety antywłamaniowe': { icon: '🛡️', en: 'anti-burglary roller blinds' },
+  'taras': { icon: ' ', en: 'terrace' },
+  'balkon': { icon: ' ', en: 'balcony' },
+  'pom. użytkowe': { icon: ' ', en: 'utility room' },
+  'pom. użytkowy': { icon: ' ', en: 'utility room' },
+  'meble': { icon: ' ', en: 'furniture' },
+  'pralka': { icon: ' ', en: 'washing machine' },
+  'zmywarka': { icon: ' ', en: 'dishwasher' },
+  'lodówka': { icon: ' ', en: 'refrigerator' },
+  'kuchenka': { icon: ' ', en: 'stove' },
+  'piekarnik': { icon: ' ', en: 'oven' },
+  'telewizor': { icon: ' ', en: 'tv' },
+  'klimatyzacja': { icon: ' ', en: 'air conditioning' },
+  'rolety antywłamaniowe': { icon: ' ', en: 'anti-burglary roller blinds' },
   'drzwi / okna antywłamaniowe': {
-    icon: '🚪',
+    icon: ' ',
     en: 'burglar-proof doors / windows'
   },
-  'domofon / wideofon': { icon: '📞', en: 'intercom / videophone' },
-  'system alarmowy': { icon: '🚨', en: 'alarm system' },
-  'internet': { icon: '🌐', en: 'internet' },
-  'telewizja kablowa': { icon: '📡', en: 'cable tv' },
-  'telefon': { icon: '☎️', en: 'phone' },
-  'teren zamknięty': { icon: '🏘️', en: 'gated area' },
-  'garaż': { icon: '🚗', en: 'garage' },
-  'miejsce parkingowe': { icon: '🚗', en: 'parking space' },
-  'tylko dla niepalących': { icon: '🚭', en: 'non-smokers only' }
+  'domofon / wideofon': { icon: ' ', en: 'intercom / videophone' },
+  'system alarmowy': { icon: ' ', en: 'alarm system' },
+  'internet': { icon: ' ', en: 'internet' },
+  'telewizja kablowa': { icon: ' ', en: 'cable tv' },
+  'telefon': { icon: ' ', en: 'phone' },
+  'teren zamknięty': { icon: ' ', en: 'gated area' },
+  'garaż': { icon: ' ', en: 'garage' },
+  'miejsce parkingowe': { icon: ' ', en: 'parking space' },
+  'tylko dla niepalących': { icon: ' ', en: 'non-smokers only' }
 };
 
 function decorateAmenity(raw) {
@@ -201,7 +201,7 @@ function generateInsights(summary) {
   return insights;
 }
 
-// ---------- Otodom scraper ----------
+// ---------- Otodom scraper (JSON-LD) ----------
 
 function findOtodomProduct($) {
   let product = null;
@@ -211,8 +211,8 @@ function findOtodomProduct($) {
     const raw = $(el).contents().text();
     try {
       const json = JSON.parse(raw);
-
       const candidates = [];
+
       if (Array.isArray(json)) {
         candidates.push(...json);
       } else if (json['@graph']) {
@@ -243,13 +243,11 @@ function findOtodomProduct($) {
 
 async function parseOtodom($, url) {
   const product = findOtodomProduct($);
-
   if (!product) {
     throw new Error('Could not find structured data on page (Otodom JSON-LD).');
   }
 
   const additional = product.additionalProperty || [];
-
   const getProp = (namePart) => {
     const lower = namePart.toLowerCase();
     const found = additional.find((p) =>
@@ -297,6 +295,17 @@ async function parseOtodom($, url) {
     .filter(Boolean)
     .join(', ');
 
+  // NEW: geo coordinates from JSON-LD
+  const geo = product.geo || {};
+  const latitude =
+    typeof geo.latitude !== 'undefined' && geo.latitude !== null
+      ? Number(geo.latitude)
+      : null;
+  const longitude =
+    typeof geo.longitude !== 'undefined' && geo.longitude !== null
+      ? Number(geo.longitude)
+      : null;
+
   const rentPLN = product.offers ? Number(product.offers.price) : null;
   const adminPLN = parsePLNAmount(admin);
   const depositPLN = parsePLNAmount(deposit);
@@ -305,8 +314,13 @@ async function parseOtodom($, url) {
     rentPLN && adminPLN ? rentPLN + adminPLN : rentPLN || null;
 
   const areaNum = area
-    ? parseFloat(area.replace(',', '.').replace(/[^\d.]/g, ''))
+    ? parseFloat(
+        area
+          .replace(',', '.')
+          .replace(/[^\d.]/g, '')
+      )
     : null;
+
   const pricePerM2 =
     totalPLN && areaNum && areaNum > 0
       ? Math.round(totalPLN / areaNum)
@@ -323,6 +337,7 @@ async function parseOtodom($, url) {
   const summary = {
     site: 'otodom.pl',
     url,
+
     // monetary fields
     rent: rentPLN ? `${rentPLN} PLN` : null,
     rentPLN: rentPLN || null,
@@ -334,14 +349,21 @@ async function parseOtodom($, url) {
       : null,
     deposit,
     depositPLN: depositPLN || null,
+
     // core metrics
     rooms: rooms ? String(rooms) : null,
     area: area || null,
     availableFrom,
     location,
+
     // amenities + description
     amenities: amenitiesRaw.map(decorateAmenity),
     descriptionEN,
+
+    // geo (for distance from base)
+    latitude: !Number.isNaN(latitude) ? latitude : null,
+    longitude: !Number.isNaN(longitude) ? longitude : null,
+
     // extras used by insights / risk
     hasTerraceOrBalcony,
     hasInternet,
@@ -361,7 +383,9 @@ app.post('/api/summarize', async (req, res) => {
   try {
     const { url } = req.body;
     if (!url) {
-      return res.status(400).json({ success: false, error: 'URL is required' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'URL is required' });
     }
 
     const hostname = new URL(url).hostname;
@@ -380,7 +404,6 @@ app.post('/api/summarize', async (req, res) => {
     });
 
     const $ = cheerio.load(response.data);
-
     const summary = await parseOtodom($, url);
 
     res.json({ success: true, summary });
