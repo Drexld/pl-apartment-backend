@@ -12,7 +12,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// DeepL API key
+// DeepL API key (set in your deployment environment)
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
 
 // ---------- Helpers ----------
@@ -33,10 +33,12 @@ function parsePLNAmount(str) {
 
 async function translateToEnglish(text) {
   if (!text || !text.trim()) return '';
-  if (!DEEPL_API_KEY) {
-    // No key configured → return original
-    return text;
-  }
+  if (!DEEPL_API_KEY) return text;
+
+  // DeepL: free keys use api-free, pro keys use api.
+  const endpoint = DEEPL_API_KEY.includes(':fx')
+    ? 'https://api-free.deepl.com/v2/translate'
+    : 'https://api.deepl.com/v2/translate';
 
   const params = new URLSearchParams();
   params.append('auth_key', DEEPL_API_KEY);
@@ -46,13 +48,14 @@ async function translateToEnglish(text) {
 
   let response;
   try {
-    response = await axios.post(
-      'https://api-free.deepl.com/v2/translate',
-      params,
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-    );
+    response = await axios.post(endpoint, params, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
   } catch (e) {
-    console.warn('DeepL translate failed, returning original text:', e?.response?.data || e.message);
+    console.warn(
+      'DeepL translate failed, returning original text:',
+      (e && e.response && e.response.data) || e.message
+    );
     return text;
   }
 
