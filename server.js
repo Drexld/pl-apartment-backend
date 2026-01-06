@@ -46,26 +46,32 @@ async function translateToEnglish(text) {
   params.append('target_lang', 'EN');
   params.append('source_lang', 'PL');
 
-  let response;
   try {
-    response = await axios.post(endpoint, params, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    const response = await axios.post(endpoint, params.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      timeout: 15000
     });
+
+    const translated =
+      response.data &&
+      response.data.translations &&
+      response.data.translations[0] &&
+      response.data.translations[0].text;
+
+    return translated || text;
   } catch (e) {
+    // Never break the whole summarize flow if translation fails.
     console.warn(
       'DeepL translate failed, returning original text:',
+      (e && e.response && e.response.status) || '',
       (e && e.response && e.response.data) || e.message
     );
     return text;
   }
-
-  const translated =
-    response.data &&
-    response.data.translations &&
-    response.data.translations[0] &&
-    response.data.translations[0].text;
-
-  return translated || text;
 }
 
 // Icons + English labels for amenities (used mainly for backend-side description)
