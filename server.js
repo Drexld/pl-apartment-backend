@@ -8,12 +8,12 @@ const cheerio = require('cheerio');
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// DeepL API key (set in your deployment environment)
-const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
+// DeepL API key
+const DEEPL_API_KEY = process.env.DEEPL_API_KEY || '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx';
 
 // ---------- Helpers ----------
 
@@ -33,12 +33,10 @@ function parsePLNAmount(str) {
 
 async function translateToEnglish(text) {
   if (!text || !text.trim()) return '';
-  if (!DEEPL_API_KEY) return text;
-
-  // DeepL: free keys use api-free, pro keys use api.
-  const endpoint = DEEPL_API_KEY.includes(':fx')
-    ? 'https://api-free.deepl.com/v2/translate'
-    : 'https://api.deepl.com/v2/translate';
+  if (!DEEPL_API_KEY || DEEPL_API_KEY === '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx') {
+    // Fallback: no key configured, just return original
+    return text;
+  }
 
   const params = new URLSearchParams();
   params.append('auth_key', DEEPL_API_KEY);
@@ -46,32 +44,18 @@ async function translateToEnglish(text) {
   params.append('target_lang', 'EN');
   params.append('source_lang', 'PL');
 
-  try {
-    const response = await axios.post(endpoint, params.toString(), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      timeout: 15000
-    });
+  const response = await axios.post(
+    'https://api-free.deepl.com/v2/translate',
+    params
+  );
 
-    const translated =
-      response.data &&
-      response.data.translations &&
-      response.data.translations[0] &&
-      response.data.translations[0].text;
+  const translated =
+    response.data &&
+    response.data.translations &&
+    response.data.translations[0] &&
+    response.data.translations[0].text;
 
-    return translated || text;
-  } catch (e) {
-    // Never break the whole summarize flow if translation fails.
-    console.warn(
-      'DeepL translate failed, returning original text:',
-      (e && e.response && e.response.status) || '',
-      (e && e.response && e.response.data) || e.message
-    );
-    return text;
-  }
+  return translated || text;
 }
 
 // Icons + English labels for amenities (used mainly for backend-side description)
@@ -102,19 +86,57 @@ const AMENITY_MAP = {
   'garaż': { icon: ' ', en: 'garage' },
   'miejsce parkingowe': { icon: ' ', en: 'parking space' },
   'tylko dla niepalących': { icon: ' ', en: 'non-smokers only' }
+
+  'piwnica': { icon: ' ', en: 'basement/storage' },
+  'komórka lokatorska': { icon: ' ', en: 'storage room' },
+  'oddzielna kuchnia': { icon: ' ', en: 'separate kitchen' },
+  'aneks kuchenny': { icon: ' ', en: 'kitchenette' },
+  'monitoring / ochrona': { icon: ' ', en: 'security / monitoring' },
+  'ochrona': { icon: ' ', en: 'security' },
+  'monitoring': { icon: ' ', en: 'monitoring' },
+  'rolety antywłamaniowe': { icon: ' ', en: 'anti-burglary roller blinds' },
+  'drzwi / okna antywłamaniowe': { icon: ' ', en: 'burglar-proof doors / windows' },
+  'wynajmę również studentom': { icon: ' ', en: 'also available to students' },
+  'dla studentów': { icon: ' ', en: 'also available to students' },
+  'umowa na 12 miesięcy': { icon: ' ', en: '12-month lease' },
+  'umowa na okres 12 miesięcy': { icon: ' ', en: '12-month lease' },
+  'maksymalnie 2 osoby': { icon: ' ', en: 'designed for max 2 people' },
+  'max 2 osoby': { icon: ' ', en: 'designed for max 2 people' },
+  'dwupoziomowe': { icon: ' ', en: 'duplex (two-level)' }
+
 };
 
+function stripDiacritics(s) {
+  try {
+    return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  } catch {
+    // If runtime doesn't support Unicode properties, fallback without stripping
+    return s;
+  }
+}
+
+function normalizeAmenityForMatch(raw) {
+  if (!raw) return "";
+  const cleaned = String(raw).replace(/^(\s*[•\-\u2022]\s*)+/, "").trim().toLowerCase();
+  return stripDiacritics(cleaned);
+}
+
 function decorateAmenity(raw) {
-  const lower = raw.toLowerCase();
+  const original = String(raw ?? "");
+  const cleaned = original.replace(/^(\s*[•\-\u2022]\s*)+/, "").trim();
+  const norm = normalizeAmenityForMatch(cleaned);
+
   for (const key of Object.keys(AMENITY_MAP)) {
-    if (lower.includes(key)) {
+    const keyNorm = normalizeAmenityForMatch(key);
+    if (norm.includes(keyNorm)) {
       const { icon, en } = AMENITY_MAP[key];
-      return `${icon} ${en} (${raw})`;
+      return `${icon} ${en} (${cleaned})`.trim();
     }
   }
   // Default bullet if we don't recognise it
-  return `• ${raw}`;
+  return `• ${cleaned}`.trim();
 }
+
 
 // Risk / confidence based on simple heuristics for expats
 function assessRisk(summary) {
@@ -393,41 +415,8 @@ async function parseOtodom($, url) {
   return summary;
 }
 
-// ---------- Routes ----------
+// ---------- Route ----------
 
-// Preferred: client sends the already-loaded Otodom HTML (avoids server-side 403 blocks)
-app.post('/api/summarize-html', async (req, res) => {
-  try {
-    const { url, html } = req.body || {};
-    if (!url || !html) {
-      return res.status(400).json({
-        success: false,
-        error: 'URL and html are required'
-      });
-    }
-
-    const hostname = new URL(url).hostname;
-    if (!hostname.includes('otodom.pl')) {
-      return res.status(400).json({
-        success: false,
-        error: 'Right now this works best on Otodom listing pages.'
-      });
-    }
-
-    const $ = cheerio.load(html);
-    const summary = await parseOtodom($, url);
-    return res.json({ success: true, summary });
-  } catch (error) {
-    console.error('Error in /api/summarize-html:', error.message);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to analyze listing HTML',
-      details: error.message
-    });
-  }
-});
-
-// Legacy: backend fetches the URL itself (may be blocked by Otodom from cloud IPs)
 app.post('/api/summarize', async (req, res) => {
   try {
     const { url } = req.body;
