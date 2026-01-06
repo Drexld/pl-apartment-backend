@@ -13,7 +13,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 // DeepL API key
-const DEEPL_API_KEY = process.env.DEEPL_API_KEY || '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx';
+const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
 
 // ---------- Helpers ----------
 
@@ -33,8 +33,8 @@ function parsePLNAmount(str) {
 
 async function translateToEnglish(text) {
   if (!text || !text.trim()) return '';
-  if (!DEEPL_API_KEY || DEEPL_API_KEY === '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx') {
-    // Fallback: no key configured, just return original
+  if (!DEEPL_API_KEY) {
+    // No key configured → return original
     return text;
   }
 
@@ -44,10 +44,17 @@ async function translateToEnglish(text) {
   params.append('target_lang', 'EN');
   params.append('source_lang', 'PL');
 
-  const response = await axios.post(
-    'https://api-free.deepl.com/v2/translate',
-    params
-  );
+  let response;
+  try {
+    response = await axios.post(
+      'https://api-free.deepl.com/v2/translate',
+      params,
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+  } catch (e) {
+    console.warn('DeepL translate failed, returning original text:', e?.response?.data || e.message);
+    return text;
+  }
 
   const translated =
     response.data &&
@@ -59,84 +66,83 @@ async function translateToEnglish(text) {
 }
 
 // Icons + English labels for amenities (used mainly for backend-side description)
-const AMENITY_MAP = {
-  'taras': { icon: ' ', en: 'terrace' },
-  'balkon': { icon: ' ', en: 'balcony' },
-  'pom. użytkowe': { icon: ' ', en: 'utility room' },
-  'pom. użytkowy': { icon: ' ', en: 'utility room' },
-  'meble': { icon: ' ', en: 'furniture' },
-  'pralka': { icon: ' ', en: 'washing machine' },
-  'zmywarka': { icon: ' ', en: 'dishwasher' },
-  'lodówka': { icon: ' ', en: 'refrigerator' },
-  'kuchenka': { icon: ' ', en: 'stove' },
-  'piekarnik': { icon: ' ', en: 'oven' },
-  'telewizor': { icon: ' ', en: 'tv' },
-  'klimatyzacja': { icon: ' ', en: 'air conditioning' },
-  'rolety antywłamaniowe': { icon: ' ', en: 'anti-burglary roller blinds' },
-  'drzwi / okna antywłamaniowe': {
-    icon: ' ',
-    en: 'burglar-proof doors / windows'
-  },
-  'domofon / wideofon': { icon: ' ', en: 'intercom / videophone' },
-  'system alarmowy': { icon: ' ', en: 'alarm system' },
-  'internet': { icon: ' ', en: 'internet' },
-  'telewizja kablowa': { icon: ' ', en: 'cable tv' },
-  'telefon': { icon: ' ', en: 'phone' },
-  'teren zamknięty': { icon: ' ', en: 'gated area' },
-  'garaż': { icon: ' ', en: 'garage' },
-  'miejsce parkingowe': { icon: ' ', en: 'parking space' },
-  'tylko dla niepalących': { icon: ' ', en: 'non-smokers only' }
 
-  'piwnica': { icon: ' ', en: 'basement/storage' },
-  'komórka lokatorska': { icon: ' ', en: 'storage room' },
-  'oddzielna kuchnia': { icon: ' ', en: 'separate kitchen' },
-  'aneks kuchenny': { icon: ' ', en: 'kitchenette' },
-  'monitoring / ochrona': { icon: ' ', en: 'security / monitoring' },
-  'ochrona': { icon: ' ', en: 'security' },
-  'monitoring': { icon: ' ', en: 'monitoring' },
-  'rolety antywłamaniowe': { icon: ' ', en: 'anti-burglary roller blinds' },
-  'drzwi / okna antywłamaniowe': { icon: ' ', en: 'burglar-proof doors / windows' },
-  'wynajmę również studentom': { icon: ' ', en: 'also available to students' },
-  'dla studentów': { icon: ' ', en: 'also available to students' },
-  'umowa na 12 miesięcy': { icon: ' ', en: '12-month lease' },
-  'umowa na okres 12 miesięcy': { icon: ' ', en: '12-month lease' },
-  'maksymalnie 2 osoby': { icon: ' ', en: 'designed for max 2 people' },
-  'max 2 osoby': { icon: ' ', en: 'designed for max 2 people' },
-  'dwupoziomowe': { icon: ' ', en: 'duplex (two-level)' }
+// =============================
+// Amenity normalization / translation (PL -> EN)
+// =============================
 
-};
+const AMENITY_RULES = [
+  // Core amenities
+  { keys: ['balkon', 'taras'], en: 'balcony / terrace' },
+  { keys: ['garaż', 'miejsce parkingowe', 'parking'], en: 'parking / garage' },
+  { keys: ['piwnica', 'komórka'], en: 'basement / storage' },
+  { keys: ['meble', 'umeblowane'], en: 'furnished' },
+  { keys: ['pralka', 'pralko-suszarka'], en: 'washing machine' },
+  { keys: ['zmywarka'], en: 'dishwasher' },
+  { keys: ['lodówka'], en: 'refrigerator' },
+  { keys: ['kuchenka', 'płyta', 'płyta indukcyjna', 'płyta elektryczna'], en: 'stove / hob' },
+  { keys: ['piekarnik'], en: 'oven' },
+  { keys: ['telewizor', 'tv'], en: 'tv' },
+  { keys: ['internet', 'wi-fi', 'wifi'], en: 'internet' },
+  { keys: ['telewizja kablowa'], en: 'cable tv' },
+  { keys: ['klimatyzacja'], en: 'air conditioning' },
 
-function stripDiacritics(s) {
-  try {
-    return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  } catch {
-    // If runtime doesn't support Unicode properties, fallback without stripping
-    return s;
+  // Building / security
+  { keys: ['monitoring', 'ochrona'], en: 'monitoring / security' },
+  { keys: ['domofon', 'wideofon'], en: 'intercom / videophone' },
+  { keys: ['drzwi', 'okna antywłamaniowe', 'antywłamaniowe'], en: 'burglar-proof doors / windows' },
+  { keys: ['rolety antywłamaniowe'], en: 'anti-burglary roller blinds' },
+  { keys: ['teren zamknięty'], en: 'gated area' },
+
+  // Layout / type
+  { keys: ['oddzielna kuchnia'], en: 'separate kitchen' },
+  { keys: ['dwupoziomowe'], en: 'two-level / duplex' },
+  { keys: ['pom. użytkowe', 'pomieszczenie użytkowe'], en: 'utility room' },
+
+  // Rules / availability (these sometimes appear in the amenity list)
+  { keys: ['tylko dla niepalących', 'zakaz palenia', 'bez palenia'], en: 'non-smokers only' },
+  { keys: ['wynajmę również studentom', 'również studentom'], en: 'students welcome' },
+  { keys: ['umowa na 12 miesięcy', '12 miesięcy'], en: '12-month contract' },
+];
+
+function normalizeAmenityRaw(raw) {
+  if (!raw) return '';
+  return String(raw)
+    .replace(/^[\s•·•\-]+/, '') // leading bullets / whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function translateAmenity(raw) {
+  const cleaned = normalizeAmenityRaw(raw);
+  if (!cleaned) return '';
+
+  // If it's already in a nice EN (PL) form, keep it.
+  if (/^[A-Za-z].*\(.+\)$/.test(cleaned)) {
+    return cleaned;
   }
-}
 
-function normalizeAmenityForMatch(raw) {
-  if (!raw) return "";
-  const cleaned = String(raw).replace(/^(\s*[•\-\u2022]\s*)+/, "").trim().toLowerCase();
-  return stripDiacritics(cleaned);
-}
+  const lower = cleaned.toLowerCase();
 
-function decorateAmenity(raw) {
-  const original = String(raw ?? "");
-  const cleaned = original.replace(/^(\s*[•\-\u2022]\s*)+/, "").trim();
-  const norm = normalizeAmenityForMatch(cleaned);
+  // Special: max people patterns
+  if (/(max\.?|maks\.?|maksymalnie)\s*2/.test(lower) || /2\s*os(ó|o)b/.test(lower)) {
+    return 'max 2 people' + (cleaned.match(/[A-Za-z]/) ? '' : ` (${cleaned})`);
+  }
 
-  for (const key of Object.keys(AMENITY_MAP)) {
-    const keyNorm = normalizeAmenityForMatch(key);
-    if (norm.includes(keyNorm)) {
-      const { icon, en } = AMENITY_MAP[key];
-      return `${icon} ${en} (${cleaned})`.trim();
+  // Special: English sentence already
+  if (/^[ -]+$/.test(cleaned) && /[A-Za-z]/.test(cleaned)) {
+    return cleaned;
+  }
+
+  for (const rule of AMENITY_RULES) {
+    if (rule.keys.some(k => lower.includes(k))) {
+      return `${rule.en} (${cleaned})`;
     }
   }
-  // Default bullet if we don't recognise it
-  return `• ${cleaned}`.trim();
-}
 
+  // Fallback: just return cleaned (no leading bullets). Popup will show a default icon.
+  return cleaned;
+}
 
 // Risk / confidence based on simple heuristics for expats
 function assessRisk(summary) {
@@ -395,7 +401,7 @@ async function parseOtodom($, url) {
     location,
 
     // amenities + description
-    amenities: amenitiesRaw.map(decorateAmenity),
+    amenities: amenitiesRaw.map(translateAmenity).filter(Boolean),
     descriptionEN,
 
     // geo (for distance from base)
@@ -417,43 +423,41 @@ async function parseOtodom($, url) {
 
 // ---------- Route ----------
 
+
 app.post('/api/summarize', async (req, res) => {
   try {
-    const { url } = req.body;
-    if (!url) {
-      return res
-        .status(400)
-        .json({ success: false, error: 'URL is required' });
+    // Accept either a URL (server will fetch) OR raw HTML (preferred - avoids 403/bot blocks)
+    const url = req.body?.url;
+    const rawHtmlFromClient = req.body?.html;
+
+    if (!url && !rawHtmlFromClient) {
+      return res.status(400).json({ success: false, error: 'Missing url or html' });
     }
 
-    const hostname = new URL(url).hostname;
-    if (!hostname.includes('otodom.pl')) {
-      return res.status(400).json({
-        success: false,
-        error: 'Right now this works best on Otodom listing pages.'
+    let rawHtml = rawHtmlFromClient;
+
+    if (!rawHtml) {
+      // Fallback: fetch server-side (can be blocked by Otodom)
+      const resp = await axios.get(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+          'Accept-Language': 'pl,en;q=0.9',
+        },
+        timeout: 20000,
       });
+      rawHtml = resp.data;
     }
 
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
-    });
-
-    const $ = cheerio.load(response.data);
-    const summary = await parseOtodom($, url);
-
-    res.json({ success: true, summary });
-  } catch (error) {
-    console.error('Error in /api/summarize:', error.message);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch or analyze listing',
-      details: error.message
-    });
+    const summary = extractSummaryFromHtml(rawHtml, url);
+    return res.json({ success: true, summary });
+  } catch (err) {
+    console.error('Error in /api/summarize:', err?.message || err);
+    const status = err?.response?.status || 500;
+    return res.status(status).json({ success: false, error: err?.message || 'Server error' });
   }
 });
+
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
