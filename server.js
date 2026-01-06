@@ -8,7 +8,7 @@ const cheerio = require('cheerio');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 const PORT = process.env.PORT || 3000;
 
@@ -393,8 +393,41 @@ async function parseOtodom($, url) {
   return summary;
 }
 
-// ---------- Route ----------
+// ---------- Routes ----------
 
+// Preferred: client sends the already-loaded Otodom HTML (avoids server-side 403 blocks)
+app.post('/api/summarize-html', async (req, res) => {
+  try {
+    const { url, html } = req.body || {};
+    if (!url || !html) {
+      return res.status(400).json({
+        success: false,
+        error: 'URL and html are required'
+      });
+    }
+
+    const hostname = new URL(url).hostname;
+    if (!hostname.includes('otodom.pl')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Right now this works best on Otodom listing pages.'
+      });
+    }
+
+    const $ = cheerio.load(html);
+    const summary = await parseOtodom($, url);
+    return res.json({ success: true, summary });
+  } catch (error) {
+    console.error('Error in /api/summarize-html:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to analyze listing HTML',
+      details: error.message
+    });
+  }
+});
+
+// Legacy: backend fetches the URL itself (may be blocked by Otodom from cloud IPs)
 app.post('/api/summarize', async (req, res) => {
   try {
     const { url } = req.body;
