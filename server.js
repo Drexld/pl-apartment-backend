@@ -13,7 +13,9 @@ app.use(express.json({ limit: '2mb' }));
 const PORT = process.env.PORT || 3000;
 
 // DeepL API key
-const DEEPL_API_KEY = process.env.DEEPL_API_KEY || '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx';
+const DEEPL_API_KEY =
+  process.env.DEEPL_API_KEY ||
+  '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx';
 
 // ---------- Helpers ----------
 
@@ -33,8 +35,11 @@ function parsePLNAmount(str) {
 
 async function translateToEnglish(text) {
   if (!text || !text.trim()) return '';
-  if (!DEEPL_API_KEY || DEEPL_API_KEY === '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx') {
-    // Fallback: no key configured, just return original
+  if (
+    !DEEPL_API_KEY ||
+    DEEPL_API_KEY === '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx'
+  ) {
+    // Fallback: no real key configured, just return original text
     return text;
   }
 
@@ -60,76 +65,133 @@ async function translateToEnglish(text) {
 
 // Icons + English labels for amenities
 const AMENITY_MAP = {
-  'taras': { icon: ' ', en: 'terrace' },
-  'balkon': { icon: ' ', en: 'balcony' },
-  'pom. użytkowe': { icon: ' ', en: 'utility room' },
-  'pom. użytkowy': { icon: ' ', en: 'utility room' },
-  'meble': { icon: ' ', en: 'furniture' },
-  'pralka': { icon: ' ', en: 'washing machine' },
-  'zmywarka': { icon: ' ', en: 'dishwasher' },
-  'lodówka': { icon: ' ', en: 'refrigerator' },
-  'kuchenka': { icon: ' ', en: 'stove' },
-  'piekarnik': { icon: ' ', en: 'oven' },
-  'telewizor': { icon: ' ', en: 'tv' },
-  'klimatyzacja': { icon: ' ', en: 'air conditioning' },
-  'rolety antywłamaniowe': { icon: ' ', en: 'anti-burglary roller blinds' },
+  'taras': { icon: '🏡', en: 'terrace' },
+  'balkon': { icon: '🏡', en: 'balcony' },
+  'pom. użytkowe': { icon: '📦', en: 'utility room' },
+  'pom. użytkowy': { icon: '📦', en: 'utility room' },
+  'meble': { icon: '🛋️', en: 'furniture' },
+  'pralka': { icon: '🧺', en: 'washing machine' },
+  'zmywarka': { icon: '🍽️', en: 'dishwasher' },
+  'lodówka': { icon: '🧊', en: 'refrigerator' },
+  'kuchenka': { icon: '🍳', en: 'stove' },
+  'piekarnik': { icon: '🔥', en: 'oven' },
+  'telewizor': { icon: '📺', en: 'tv' },
+  'klimatyzacja': { icon: '❄️', en: 'air conditioning' },
+  'rolety antywłamaniowe': {
+    icon: '🛡️',
+    en: 'anti-burglary roller blinds'
+  },
   'drzwi / okna antywłamaniowe': {
-    icon: ' ',
+    icon: '🛡️',
     en: 'burglar-proof doors / windows'
   },
-  'domofon / wideofon': { icon: ' ', en: 'intercom / videophone' },
-  'system alarmowy': { icon: ' ', en: 'alarm system' },
-  'internet': { icon: ' ', en: 'internet' },
-  'telewizja kablowa': { icon: ' ', en: 'cable tv' },
-  'telefon': { icon: ' ', en: 'phone' },
-  'teren zamknięty': { icon: ' ', en: 'gated area' },
-  'garaż': { icon: ' ', en: 'garage' },
-  'miejsce parkingowe': { icon: ' ', en: 'parking space' },
-  'tylko dla niepalących': { icon: ' ', en: 'non-smokers only' },
-  'piwnica': { icon: ' ', en: 'basement' },
-  'winda': { icon: ' ', en: 'elevator' },
-  'ogród': { icon: ' ', en: 'garden' },
-  'ogródek': { icon: ' ', en: 'small garden' },
-  'komórka lokatorska': { icon: ' ', en: 'storage room' }
+  'domofon / wideofon': { icon: '📞', en: 'intercom / videophone' },
+  'system alarmowy': { icon: '🚨', en: 'alarm system' },
+  'internet': { icon: '🌐', en: 'internet' },
+  'telewizja kablowa': { icon: '📺', en: 'cable tv' },
+  'telefon': { icon: '📞', en: 'phone' },
+  'teren zamknięty': { icon: '🚪', en: 'gated area' },
+  'garaż': { icon: '🚗', en: 'garage' },
+  'miejsce parkingowe': { icon: '🅿️', en: 'parking space' },
+  'tylko dla niepalących': { icon: '🚭', en: 'non-smokers only' },
+  'piwnica': { icon: '📦', en: 'basement' },
+  'winda': { icon: '⬆️', en: 'elevator' },
+  'ogród': { icon: '🌳', en: 'garden' },
+  'ogródek': { icon: '🌳', en: 'small garden' },
+  'komórka lokatorska': { icon: '📦', en: 'storage room' }
 };
 
 function decorateAmenity(amenity) {
   const key = String(amenity || '').toLowerCase().trim();
   const mapped = AMENITY_MAP[key];
   if (!mapped) return amenity;
-  return `${mapped.en}`;
+  return `${mapped.icon} ${mapped.en} (${amenity})`;
 }
 
-// Extract Otodom JSON-LD (product) from page
+// ---------- Otodom JSON-LD extraction ----------
+
 function findOtodomProduct($) {
-  const scripts = $('script[type="application/ld+json"]');
+  // Helper: try to pull a Product/Offer node out of some raw JSON or JS blob
+  function extractProductFromRaw(raw) {
+    if (!raw) return null;
 
-  const candidates = [];
-  scripts.each((_, el) => {
+    let json;
+
+    // 1) Try parsing as plain JSON
     try {
-      const jsonText = $(el).contents().text();
-      if (!jsonText) return;
-      const json = JSON.parse(jsonText);
-
-      if (Array.isArray(json)) {
-        candidates.push(...json);
-      } else if (json['@graph']) {
-        candidates.push(...json['@graph']);
-      } else {
-        candidates.push(json);
+      json = JSON.parse(raw);
+    } catch {
+      // 2) If the script mixes JSON with other JS, try to slice the first {...}
+      const firstBrace = raw.indexOf('{');
+      const lastBrace = raw.lastIndexOf('}');
+      if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+        return null;
       }
-    } catch (e) {
-      // ignore JSON parse errors
+      try {
+        const candidate = raw.slice(firstBrace, lastBrace + 1);
+        json = JSON.parse(candidate);
+      } catch {
+        return null;
+      }
+    }
+
+    const nodes = [];
+    if (Array.isArray(json)) {
+      nodes.push(...json);
+    } else if (json['@graph']) {
+      nodes.push(...json['@graph']);
+    } else {
+      nodes.push(json);
+    }
+
+    for (const node of nodes) {
+      if (!node || typeof node !== 'object') continue;
+      const t = node['@type'];
+
+      if (
+        t === 'Product' ||
+        t === 'Offer' ||
+        t === 'SingleFamilyResidence' ||
+        (Array.isArray(t) &&
+          (t.includes('Product') ||
+            t.includes('Offer') ||
+            t.includes('SingleFamilyResidence')))
+      ) {
+        return node;
+      }
+    }
+
+    return null;
+  }
+
+  let product = null;
+
+  // 1) Normal case: <script type="application/ld+json">
+  $('script[type="application/ld+json"]').each((_, el) => {
+    if (product) return;
+    const raw = $(el).contents().text();
+    const candidate = extractProductFromRaw(raw);
+    if (candidate) {
+      product = candidate;
     }
   });
 
-  const product = candidates.find(
-    (item) => item['@type'] === 'Product' || item['@type'] === 'Offer'
-  );
+  // 2) Fallback: any other <script> that happens to contain JSON-LD
+  if (!product) {
+    $('script').each((_, el) => {
+      if (product) return;
+      const raw = $(el).contents().text() || '';
+      if (!raw.includes('"@type"')) return; // quick filter
+
+      const candidate = extractProductFromRaw(raw);
+      if (candidate) {
+        product = candidate;
+      }
+    });
+  }
 
   if (!product) {
     console.warn('Otodom JSON-LD product not found.');
-    return null;
   }
 
   return product;
@@ -197,11 +259,7 @@ async function parseOtodom($, url) {
     rentPLN && adminPLN ? rentPLN + adminPLN : rentPLN || null;
 
   const areaNum = area
-    ? parseFloat(
-        area
-          .replace(',', '.')
-          .replace(/[^\d.]/g, '')
-      )
+    ? parseFloat(area.replace(',', '.').replace(/[^\d.]/g, ''))
     : null;
 
   const pricePerM2 =
@@ -256,7 +314,8 @@ async function parseOtodom($, url) {
   return summary;
 }
 
-// Simple insights for expats
+// ---------- Insights & Risk ----------
+
 function generateInsights(summary) {
   const insights = [];
 
@@ -287,7 +346,6 @@ function generateInsights(summary) {
   return insights;
 }
 
-// Risk / confidence based on simple heuristics for expats
 function assessRisk(summary) {
   const flags = [];
   let riskScore = 0;
@@ -301,7 +359,7 @@ function assessRisk(summary) {
   // High deposit (>2x rent)
   if (rent && deposit && deposit > 2 * rent) {
     flags.push(
-      `High deposit: ${summary.deposit} (more than 2× monthly rent)`
+      `High deposit: ${summary.deposit} (more than 2× monthly rent).`
     );
     riskScore += 2;
   }
@@ -309,7 +367,7 @@ function assessRisk(summary) {
   // Admin / utilities unusually high vs rent
   if (rent && admin && admin > 0.6 * rent) {
     flags.push(
-      `Admin / utilities (${summary.admin}) are high compared to base rent`
+      `Admin / utilities (${summary.admin}) are high compared to base rent.`
     );
     riskScore += 1;
   }
@@ -330,7 +388,7 @@ function assessRisk(summary) {
     riskScore += 2;
   }
 
-  // Missing admin / deposit info already handled in insights, but we can bump risk slightly
+  // Missing admin / deposit info
   if (!admin) {
     riskScore += 1;
     flags.push('Admin / utilities not specified – clarify before deciding.');
@@ -416,7 +474,9 @@ app.post('/api/summarize-html', async (req, res) => {
     res.json({ success: true, summary });
   } catch (err) {
     console.error('Error in /api/summarize-html:', err);
-    res.status(500).json({ success: false, error: err.message || 'Server error' });
+    res
+      .status(500)
+      .json({ success: false, error: err.message || 'Server error' });
   }
 });
 
