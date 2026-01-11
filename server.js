@@ -15,6 +15,9 @@ const PORT = process.env.PORT || 3000;
 // DeepL API key
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY || '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx';
 
+// Google Maps API key (for optional commute time)
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+
 // ---------- Helpers ----------
 
 function stripHtml(html) {
@@ -58,6 +61,84 @@ async function translateToEnglish(text) {
   return translated || text;
 }
 
+// Optional: compute commute durations using Google Distance Matrix.
+// This is fully optional and only used when base + listing coordinates
+// and GOOGLE_MAPS_API_KEY are available.
+async function fetchDurationSeconds(baseLat, baseLng, destLat, destLng, mode) {
+  if (!GOOGLE_MAPS_API_KEY) return null;
+  if (
+    typeof baseLat !== 'number' ||
+    typeof baseLng !== 'number' ||
+    typeof destLat !== 'number' ||
+    typeof destLng !== 'number'
+  ) {
+    return null;
+  }
+
+  try {
+    const resp = await axios.get(
+      'https://maps.googleapis.com/maps/api/distancematrix/json',
+      {
+        params: {
+          origins: `${baseLat},${baseLng}`,
+          destinations: `${destLat},${destLng}`,
+          mode,
+          departure_time: 'now',
+          key: GOOGLE_MAPS_API_KEY
+        }
+      }
+    );
+
+    const data = resp.data;
+    if (
+      !data ||
+      !Array.isArray(data.rows) ||
+      !data.rows[0] ||
+      !Array.isArray(data.rows[0].elements) ||
+      !data.rows[0].elements[0] ||
+      data.rows[0].elements[0].status !== 'OK'
+    ) {
+      return null;
+    }
+
+    const duration = data.rows[0].elements[0].duration;
+    if (!duration || typeof duration.value !== 'number') {
+      return null;
+    }
+    return duration.value; // seconds
+  } catch (err) {
+    console.error(`Error calling Distance Matrix (${mode}):`, err.message || err);
+    return null;
+  }
+}
+
+async function computeCommuteDurations(baseLat, baseLng, destLat, destLng) {
+  if (!GOOGLE_MAPS_API_KEY) return null;
+  if (
+    typeof baseLat !== 'number' ||
+    typeof baseLng !== 'number' ||
+    typeof destLat !== 'number' ||
+    typeof destLng !== 'number'
+  ) {
+    return null;
+  }
+
+  const [transitSec, drivingSec, bikeSec] = await Promise.all([
+    fetchDurationSeconds(baseLat, baseLng, destLat, destLng, 'transit'),
+    fetchDurationSeconds(baseLat, baseLng, destLat, destLng, 'driving'),
+    fetchDurationSeconds(baseLat, baseLng, destLat, destLng, 'bicycling')
+  ]);
+
+  const toMinutes = (sec) =>
+    typeof sec === 'number' ? Math.round(sec / 60) : null;
+
+  return {
+    transitMinutes: toMinutes(transitSec),
+    drivingMinutes: toMinutes(drivingSec),
+    bikeMinutes: toMinutes(bikeSec)
+  };
+}
+
 // Icons + English labels for amenities (used mainly for backend-side description)
 const AMENITY_MAP = {
   'taras': { icon: ' ', en: 'terrace' },
@@ -86,140 +167,30 @@ const AMENITY_MAP = {
   'garaż': { icon: ' ', en: 'garage' },
   'miejsce parkingowe': { icon: ' ', en: 'parking space' },
   'tylko dla niepalących': { icon: ' ', en: 'non-smokers only' },
-
-  'wynajmę również studentom': { icon: ' ', en: 'also available for students' },
-  'umowa na 12 miesięcy': { icon: ' ', en: '12-month lease' },
-  'oddzielna kuchnia': { icon: ' ', en: 'separate kitchen' },
-  'dwupoziomowe': { icon: ' ', en: 'two-level / duplex' },
-  'pom. użytkowe': { icon: ' ', en: 'utility room' },
-  'monitoring / ochrona': { icon: ' ', en: 'security / monitoring' }
+  'piwnica': { icon: ' ', en: 'basement' },
+  'winda': { icon: ' ', en: 'elevator' },
+  'ogród': { icon: ' ', en: 'garden' },
+  'ogródek': { icon: ' ', en: 'small garden' },
+  'komórka lokatorska': { icon: ' ', en: 'storage room' }
 };
 
-function decorateAmenity(raw) {
-  const cleaned = String(raw || '').replace(/^[\s•\-–—·]+/g, '').trim();
-  const lower = cleaned.toLowerCase();
-  for (const key of Object.keys(AMENITY_MAP)) {
-    if (lower.includes(key)) {
-      const { icon, en } = AMENITY_MAP[key];
-      return `${icon} ${en} (${cleaned})`;
-    }
-  }
-  // Default bullet if we don't recognise it
-  return `• ${cleaned}`;
+function decorateAmenity(amenity) {
+  const key = String(amenity || '').toLowerCase().trim();
+  const mapped = AMENITY_MAP[key];
+  if (!mapped) return amenity;
+  return `${mapped.en}`;
 }
 
-// Risk / confidence based on simple heuristics for expats
-function assessRisk(summary) {
-  const flags = [];
-  let riskScore = 0;
-
-  const rent = summary.rentPLN;
-  const admin = summary.adminPLN;
-  const deposit = summary.depositPLN;
-  const total = summary.totalPLN;
-  const ppm2 = summary.pricePerM2;
-
-  // High deposit (>2x rent)
-  if (rent && deposit && deposit > 2 * rent) {
-    flags.push(
-      `High deposit: ${summary.deposit} (more than 2× monthly rent)`
-    );
-    riskScore += 2;
-  }
-
-  // Admin / utilities unusually high vs rent
-  if (rent && admin && admin > 0.6 * rent) {
-    flags.push(
-      `Admin / utilities (${summary.admin}) are high compared to base rent`
-    );
-    riskScore += 1;
-  }
-
-  // Very expensive per m²
-  if (ppm2 && ppm2 > 150) {
-    flags.push(
-      `Price per m² (${ppm2} PLN) is on the expensive side for many areas`
-    );
-    riskScore += 1;
-  }
-
-  // Long wait until available (> 6 months)
-  if (summary.availableFrom) {
-    const now = new Date();
-    const available = new Date(summary.availableFrom);
-    if (!Number.isNaN(available.getTime())) {
-      const diffMonths =
-        (available.getFullYear() - now.getFullYear()) * 12 +
-        (available.getMonth() - now.getMonth());
-      if (diffMonths > 6) {
-        flags.push(
-          `Available from ${summary.availableFrom} (long wait before move-in)`
-        );
-        riskScore += 1;
-      }
-    }
-  }
-
-  // Compute level + confidence
-  let level = 'Low';
-  let confidence = 0.9;
-
-  if (riskScore <= 1) {
-    level = 'Low';
-    confidence = 0.9;
-  } else if (riskScore <= 3) {
-    level = 'Medium';
-    confidence = 0.75;
-  } else {
-    level = 'High';
-    confidence = 0.6;
-  }
-
-  return {
-    level,
-    confidence,
-    flags
-  };
-}
-
-// Build insights list for expats
-function generateInsights(summary) {
-  const insights = [];
-
-  if (summary.pricePerM2) {
-    insights.push(
-      `Price per m²: ${summary.pricePerM2} PLN (~${Math.round(
-        summary.pricePerM2 * 0.23
-      )} EUR)`
-    );
-  }
-
-  if (summary.availableFrom) {
-    insights.push(`Available from: ${summary.availableFrom}`);
-  }
-
-  if (summary.hasTerraceOrBalcony) {
-    insights.push('Includes terrace or balcony');
-  }
-
-  if (summary.hasInternet) {
-    insights.push('Internet included / available in building');
-  }
-
-  return insights;
-}
-
-// ---------- Otodom scraper (JSON-LD) ----------
-
+// Extract Otodom JSON-LD (product) from page
 function findOtodomProduct($) {
-  let product = null;
+  const scripts = $('script[type="application/ld+json"]');
 
-  $('script[type="application/ld+json"]').each((_, el) => {
-    if (product) return;
-    const raw = $(el).contents().text();
+  const candidates = [];
+  scripts.each((_, el) => {
     try {
-      const json = JSON.parse(raw);
-      const candidates = [];
+      const jsonText = $(el).contents().text();
+      if (!jsonText) return;
+      const json = JSON.parse(jsonText);
 
       if (Array.isArray(json)) {
         candidates.push(...json);
@@ -228,23 +199,19 @@ function findOtodomProduct($) {
       } else {
         candidates.push(json);
       }
-
-      for (const node of candidates) {
-        if (!node) continue;
-        const t = node['@type'];
-        if (
-          t === 'Product' ||
-          t === 'Apartment' ||
-          (Array.isArray(t) && t.includes('Product'))
-        ) {
-          product = node;
-          break;
-        }
-      }
     } catch (e) {
-      // ignore parse errors
+      // ignore JSON parse errors
     }
   });
+
+  const product = candidates.find(
+    (item) => item['@type'] === 'Product' || item['@type'] === 'Offer'
+  );
+
+  if (!product) {
+    console.warn('Otodom JSON-LD product not found.');
+    return null;
+  }
 
   return product;
 }
@@ -351,18 +318,18 @@ async function parseOtodom($, url) {
     rentPLN: rentPLN || null,
     admin,
     adminPLN: adminPLN || null,
-    totalPLN: totalPLN || null,
-    totalCostDisplay: totalPLN
-      ? `${totalPLN} PLN (~${Math.round(totalPLN * 0.23)} EUR)`
-      : null,
     deposit,
     depositPLN: depositPLN || null,
+    totalPLN,
 
-    // core metrics
-    rooms: rooms ? String(rooms) : null,
-    area: area || null,
+    // physical
+    rooms: rooms ? Number(rooms) : null,
+    area,
+    areaM2: areaNum,
     availableFrom,
-    location,
+
+    // location
+    address: location,
 
     // amenities + description
     amenities: amenitiesRaw.map(decorateAmenity),
@@ -378,18 +345,115 @@ async function parseOtodom($, url) {
     pricePerM2
   };
 
-  // Add insights + risk object
   summary.insights = generateInsights(summary);
   summary.risk = assessRisk(summary);
 
   return summary;
 }
 
+// Simple insights for expats
+function generateInsights(summary) {
+  const insights = [];
+
+  if (summary.pricePerM2) {
+    insights.push(
+      `Estimated price per m²: ${summary.pricePerM2} PLN (rent + admin, approx.).`
+    );
+  }
+
+  if (!summary.adminPLN) {
+    insights.push(
+      'Admin / building fee is not clearly listed: always ask how much and what it covers (water, heating, garbage, etc.).'
+    );
+  }
+
+  if (!summary.depositPLN) {
+    insights.push(
+      'Deposit amount is not listed. Always confirm how much deposit is required and when it is refunded.'
+    );
+  }
+
+  if (!summary.availableFrom) {
+    insights.push(
+      'Availability date is not specified. Ask from when the apartment is actually available.'
+    );
+  }
+
+  return insights;
+}
+
+// Risk / confidence based on simple heuristics for expats
+function assessRisk(summary) {
+  const flags = [];
+  let riskScore = 0;
+
+  const rent = summary.rentPLN;
+  const admin = summary.adminPLN;
+  const deposit = summary.depositPLN;
+  const total = summary.totalPLN;
+  const ppm2 = summary.pricePerM2;
+
+  // High deposit (>2x rent)
+  if (deposit && rent && deposit > 2 * rent) {
+    riskScore += 20;
+    flags.push('Deposit seems high compared to rent (>2x).');
+  }
+
+  // No admin fee specified
+  if (!admin) {
+    riskScore += 15;
+    flags.push(
+      'Admin / building fee is not clearly listed – always ask for the exact amount.'
+    );
+  }
+
+  // No deposit listed
+  if (!deposit) {
+    riskScore += 10;
+    flags.push(
+      'Deposit is not clearly listed – always confirm how much deposit is required.'
+    );
+  }
+
+  // Very high price per m2 (rough heuristic)
+  if (ppm2 && ppm2 > 150) {
+    riskScore += 15;
+    flags.push(
+      'Price per m² seems quite high compared to typical long-term rentals.'
+    );
+  }
+
+  // Short or vague description
+  if (!summary.descriptionEN || summary.descriptionEN.length < 200) {
+    riskScore += 10;
+    flags.push('Description is short or vague – read carefully and ask questions.');
+  }
+
+  // Missing availability
+  if (!summary.availableFrom) {
+    riskScore += 5;
+    flags.push('Availability date not specified – confirm move-in date.');
+  }
+
+  let level = 'Low';
+  if (riskScore >= 40) level = 'High';
+  else if (riskScore >= 20) level = 'Medium';
+
+  const confidence = Math.max(40, 100 - riskScore);
+
+  return {
+    level,
+    score: riskScore,
+    confidence,
+    notes: flags
+  };
+}
+
 // ---------- Route ----------
 
 app.post('/api/summarize', async (req, res) => {
   try {
-    const { url } = req.body;
+    const { url, baseLat, baseLng } = req.body || {};
     if (!url) {
       return res
         .status(400)
@@ -414,6 +478,34 @@ app.post('/api/summarize', async (req, res) => {
     const $ = cheerio.load(response.data);
     const summary = await parseOtodom($, url);
 
+    // Optional commute-time enrichment if base + listing coords + API key exist.
+    if (
+      typeof baseLat === 'number' &&
+      typeof baseLng === 'number' &&
+      summary &&
+      typeof summary.latitude === 'number' &&
+      typeof summary.longitude === 'number'
+    ) {
+      try {
+        const commute = await computeCommuteDurations(
+          baseLat,
+          baseLng,
+          summary.latitude,
+          summary.longitude
+        );
+        if (commute) {
+          summary.commuteTransitMinutes = commute.transitMinutes;
+          summary.commuteDrivingMinutes = commute.drivingMinutes;
+          summary.commuteBikeMinutes = commute.bikeMinutes;
+        }
+      } catch (err) {
+        console.error(
+          'Error computing commute durations:',
+          err.message || err
+        );
+      }
+    }
+
     res.json({ success: true, summary });
   } catch (error) {
     console.error('Error in /api/summarize:', error.message);
@@ -427,19 +519,48 @@ app.post('/api/summarize', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-});app.post('/api/summarize-html', async (req, res) => {
+});
+
+app.post('/api/summarize-html', async (req, res) => {
   try {
-    const { html, url = '' } = req.body || {};
+    const { html, url = '', baseLat, baseLng } = req.body || {};
     if (!html || typeof html !== 'string' || html.length < 1000) {
       return res.status(400).json({ success: false, error: 'Missing html' });
     }
     const $ = cheerio.load(html);
     const summary = await parseOtodom($, url);
+
+    // Optional commute-time enrichment if base + listing coords + API key exist.
+    if (
+      typeof baseLat === 'number' &&
+      typeof baseLng === 'number' &&
+      summary &&
+      typeof summary.latitude === 'number' &&
+      typeof summary.longitude === 'number'
+    ) {
+      try {
+        const commute = await computeCommuteDurations(
+          baseLat,
+          baseLng,
+          summary.latitude,
+          summary.longitude
+        );
+        if (commute) {
+          summary.commuteTransitMinutes = commute.transitMinutes;
+          summary.commuteDrivingMinutes = commute.drivingMinutes;
+          summary.commuteBikeMinutes = commute.bikeMinutes;
+        }
+      } catch (err) {
+        console.error(
+          'Error computing commute durations (html):',
+          err.message || err
+        );
+      }
+    }
+
     res.json({ success: true, summary });
   } catch (err) {
     console.error('Error in /api/summarize-html:', err);
     res.status(500).json({ success: false, error: err.message || 'Server error' });
   }
 });
-
-
