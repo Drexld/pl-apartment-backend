@@ -8,15 +8,12 @@ const cheerio = require('cheerio');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 const PORT = process.env.PORT || 3000;
 
 // DeepL API key
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY || '6b4188e6-d473-4a9d-a9d7-f09763395a33:fx';
-
-// Google Maps API key (for optional commute time)
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 
 // ---------- Helpers ----------
 
@@ -61,85 +58,7 @@ async function translateToEnglish(text) {
   return translated || text;
 }
 
-// Optional: compute commute durations using Google Distance Matrix.
-// This is fully optional and only used when base + listing coordinates
-// and GOOGLE_MAPS_API_KEY are available.
-async function fetchDurationSeconds(baseLat, baseLng, destLat, destLng, mode) {
-  if (!GOOGLE_MAPS_API_KEY) return null;
-  if (
-    typeof baseLat !== 'number' ||
-    typeof baseLng !== 'number' ||
-    typeof destLat !== 'number' ||
-    typeof destLng !== 'number'
-  ) {
-    return null;
-  }
-
-  try {
-    const resp = await axios.get(
-      'https://maps.googleapis.com/maps/api/distancematrix/json',
-      {
-        params: {
-          origins: `${baseLat},${baseLng}`,
-          destinations: `${destLat},${destLng}`,
-          mode,
-          departure_time: 'now',
-          key: GOOGLE_MAPS_API_KEY
-        }
-      }
-    );
-
-    const data = resp.data;
-    if (
-      !data ||
-      !Array.isArray(data.rows) ||
-      !data.rows[0] ||
-      !Array.isArray(data.rows[0].elements) ||
-      !data.rows[0].elements[0] ||
-      data.rows[0].elements[0].status !== 'OK'
-    ) {
-      return null;
-    }
-
-    const duration = data.rows[0].elements[0].duration;
-    if (!duration || typeof duration.value !== 'number') {
-      return null;
-    }
-    return duration.value; // seconds
-  } catch (err) {
-    console.error(`Error calling Distance Matrix (${mode}):`, err.message || err);
-    return null;
-  }
-}
-
-async function computeCommuteDurations(baseLat, baseLng, destLat, destLng) {
-  if (!GOOGLE_MAPS_API_KEY) return null;
-  if (
-    typeof baseLat !== 'number' ||
-    typeof baseLng !== 'number' ||
-    typeof destLat !== 'number' ||
-    typeof destLng !== 'number'
-  ) {
-    return null;
-  }
-
-  const [transitSec, drivingSec, bikeSec] = await Promise.all([
-    fetchDurationSeconds(baseLat, baseLng, destLat, destLng, 'transit'),
-    fetchDurationSeconds(baseLat, baseLng, destLat, destLng, 'driving'),
-    fetchDurationSeconds(baseLat, baseLng, destLat, destLng, 'bicycling')
-  ]);
-
-  const toMinutes = (sec) =>
-    typeof sec === 'number' ? Math.round(sec / 60) : null;
-
-  return {
-    transitMinutes: toMinutes(transitSec),
-    drivingMinutes: toMinutes(drivingSec),
-    bikeMinutes: toMinutes(bikeSec)
-  };
-}
-
-// Icons + English labels for amenities (used mainly for backend-side description)
+// Icons + English labels for amenities
 const AMENITY_MAP = {
   'taras': { icon: ' ', en: 'terrace' },
   'balkon': { icon: ' ', en: 'balcony' },
@@ -270,17 +189,6 @@ async function parseOtodom($, url) {
     .filter(Boolean)
     .join(', ');
 
-  // NEW: geo coordinates from JSON-LD
-  const geo = product.geo || {};
-  const latitude =
-    typeof geo.latitude !== 'undefined' && geo.latitude !== null
-      ? Number(geo.latitude)
-      : null;
-  const longitude =
-    typeof geo.longitude !== 'undefined' && geo.longitude !== null
-      ? Number(geo.longitude)
-      : null;
-
   const rentPLN = product.offers ? Number(product.offers.price) : null;
   const adminPLN = parsePLNAmount(admin);
   const depositPLN = parsePLNAmount(deposit);
@@ -335,16 +243,13 @@ async function parseOtodom($, url) {
     amenities: amenitiesRaw.map(decorateAmenity),
     descriptionEN,
 
-    // geo (for distance from base)
-    latitude: !Number.isNaN(latitude) ? latitude : null,
-    longitude: !Number.isNaN(longitude) ? longitude : null,
-
     // extras used by insights / risk
     hasTerraceOrBalcony,
     hasInternet,
     pricePerM2
   };
 
+  // Add insights + risk object
   summary.insights = generateInsights(summary);
   summary.risk = assessRisk(summary);
 
@@ -394,52 +299,64 @@ function assessRisk(summary) {
   const ppm2 = summary.pricePerM2;
 
   // High deposit (>2x rent)
-  if (deposit && rent && deposit > 2 * rent) {
-    riskScore += 20;
-    flags.push('Deposit seems high compared to rent (>2x).');
-  }
-
-  // No admin fee specified
-  if (!admin) {
-    riskScore += 15;
+  if (rent && deposit && deposit > 2 * rent) {
     flags.push(
-      'Admin / building fee is not clearly listed – always ask for the exact amount.'
+      `High deposit: ${summary.deposit} (more than 2× monthly rent)`
     );
+    riskScore += 2;
   }
 
-  // No deposit listed
-  if (!deposit) {
-    riskScore += 10;
+  // Admin / utilities unusually high vs rent
+  if (rent && admin && admin > 0.6 * rent) {
     flags.push(
-      'Deposit is not clearly listed – always confirm how much deposit is required.'
+      `Admin / utilities (${summary.admin}) are high compared to base rent`
     );
+    riskScore += 1;
   }
 
-  // Very high price per m2 (rough heuristic)
+  // Very expensive per m²
   if (ppm2 && ppm2 > 150) {
-    riskScore += 15;
     flags.push(
-      'Price per m² seems quite high compared to typical long-term rentals.'
+      'Price per m² seems high compared to typical long-term rentals.'
     );
+    riskScore += 2;
+  }
+
+  // Very cheap per m² (could be short-term or issues)
+  if (ppm2 && ppm2 < 40) {
+    flags.push(
+      'Price per m² seems low – double-check if it is really long-term rent and if there are hidden costs.'
+    );
+    riskScore += 2;
+  }
+
+  // Missing admin / deposit info already handled in insights, but we can bump risk slightly
+  if (!admin) {
+    riskScore += 1;
+    flags.push('Admin / utilities not specified – clarify before deciding.');
+  }
+  if (!deposit) {
+    riskScore += 1;
+    flags.push('Deposit not specified – clarify amount and refund rules.');
   }
 
   // Short or vague description
   if (!summary.descriptionEN || summary.descriptionEN.length < 200) {
-    riskScore += 10;
-    flags.push('Description is short or vague – read carefully and ask questions.');
+    riskScore += 1;
+    flags.push('Description is short or vague – ask more detailed questions.');
   }
 
   // Missing availability
   if (!summary.availableFrom) {
-    riskScore += 5;
+    riskScore += 1;
     flags.push('Availability date not specified – confirm move-in date.');
   }
 
   let level = 'Low';
-  if (riskScore >= 40) level = 'High';
-  else if (riskScore >= 20) level = 'Medium';
+  if (riskScore >= 6) level = 'High';
+  else if (riskScore >= 3) level = 'Medium';
 
-  const confidence = Math.max(40, 100 - riskScore);
+  const confidence = Math.max(40, 100 - riskScore * 5);
 
   return {
     level,
@@ -449,11 +366,11 @@ function assessRisk(summary) {
   };
 }
 
-// ---------- Route ----------
+// ---------- Routes ----------
 
 app.post('/api/summarize', async (req, res) => {
   try {
-    const { url, baseLat, baseLng } = req.body || {};
+    const { url } = req.body || {};
     if (!url) {
       return res
         .status(400)
@@ -477,35 +394,6 @@ app.post('/api/summarize', async (req, res) => {
 
     const $ = cheerio.load(response.data);
     const summary = await parseOtodom($, url);
-
-    // Optional commute-time enrichment if base + listing coords + API key exist.
-    if (
-      typeof baseLat === 'number' &&
-      typeof baseLng === 'number' &&
-      summary &&
-      typeof summary.latitude === 'number' &&
-      typeof summary.longitude === 'number'
-    ) {
-      try {
-        const commute = await computeCommuteDurations(
-          baseLat,
-          baseLng,
-          summary.latitude,
-          summary.longitude
-        );
-        if (commute) {
-          summary.commuteTransitMinutes = commute.transitMinutes;
-          summary.commuteDrivingMinutes = commute.drivingMinutes;
-          summary.commuteBikeMinutes = commute.bikeMinutes;
-        }
-      } catch (err) {
-        console.error(
-          'Error computing commute durations:',
-          err.message || err
-        );
-      }
-    }
-
     res.json({ success: true, summary });
   } catch (error) {
     console.error('Error in /api/summarize:', error.message);
@@ -517,50 +405,21 @@ app.post('/api/summarize', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
-
 app.post('/api/summarize-html', async (req, res) => {
   try {
-    const { html, url = '', baseLat, baseLng } = req.body || {};
+    const { html, url = '' } = req.body || {};
     if (!html || typeof html !== 'string' || html.length < 1000) {
       return res.status(400).json({ success: false, error: 'Missing html' });
     }
     const $ = cheerio.load(html);
     const summary = await parseOtodom($, url);
-
-    // Optional commute-time enrichment if base + listing coords + API key exist.
-    if (
-      typeof baseLat === 'number' &&
-      typeof baseLng === 'number' &&
-      summary &&
-      typeof summary.latitude === 'number' &&
-      typeof summary.longitude === 'number'
-    ) {
-      try {
-        const commute = await computeCommuteDurations(
-          baseLat,
-          baseLng,
-          summary.latitude,
-          summary.longitude
-        );
-        if (commute) {
-          summary.commuteTransitMinutes = commute.transitMinutes;
-          summary.commuteDrivingMinutes = commute.drivingMinutes;
-          summary.commuteBikeMinutes = commute.bikeMinutes;
-        }
-      } catch (err) {
-        console.error(
-          'Error computing commute durations (html):',
-          err.message || err
-        );
-      }
-    }
-
     res.json({ success: true, summary });
   } catch (err) {
     console.error('Error in /api/summarize-html:', err);
     res.status(500).json({ success: false, error: err.message || 'Server error' });
   }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });
