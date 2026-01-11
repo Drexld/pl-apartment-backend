@@ -1,6 +1,6 @@
 // server.js
 // Backend for Polish apartment listing summarizer (Otodom)
-// With distance calculation and translation support
+// With multi-modal commute calculation and translation support
 
 const express = require('express');
 const cors = require('cors');
@@ -38,7 +38,6 @@ function parsePLNAmount(str) {
 async function translateToEnglish(text) {
   if (!text || !text.trim()) return '';
   
-  // If no DeepL API key, return original
   if (!DEEPL_API_KEY) {
     console.log('No DeepL API key configured, returning original text');
     return text;
@@ -57,41 +56,29 @@ async function translateToEnglish(text) {
       { timeout: 10000 }
     );
 
-    const translated =
-      response.data?.translations?.[0]?.text;
-
+    const translated = response.data?.translations?.[0]?.text;
     return translated || text;
   } catch (error) {
     console.error('DeepL translation error:', error.message);
-    return text; // Return original on error
+    return text;
   }
 }
 
-// ---------- Distance Calculation ----------
+// ---------- Multi-Modal Commute Calculation ----------
 
-async function calculateDistance(originAddress, destinationAddress) {
-  if (!originAddress || !destinationAddress) {
-    return null;
-  }
-
-  if (!GOOGLE_MAPS_API_KEY) {
-    // Fallback: calculate straight-line distance using geocoding approximation
-    console.log('No Google Maps API key, using straight-line estimation');
-    return await calculateStraightLineDistance(originAddress, destinationAddress);
-  }
-
+async function calculateCommuteForMode(origin, destination, mode) {
   try {
     const response = await axios.get(
       'https://maps.googleapis.com/maps/api/distancematrix/json',
       {
         params: {
-          origins: originAddress,
-          destinations: destinationAddress,
+          origins: origin,
+          destinations: destination,
           key: GOOGLE_MAPS_API_KEY,
-          mode: 'transit',
+          mode: mode,
           language: 'en',
         },
-        timeout: 10000,
+        timeout: 8000,
       }
     );
 
@@ -109,15 +96,62 @@ async function calculateDistance(originAddress, destinationAddress) {
     
     return null;
   } catch (error) {
-    console.error('Google Maps distance error:', error.message);
+    console.error(`Google Maps ${mode} error:`, error.message);
     return null;
   }
 }
 
-// Fallback: straight-line distance using Geocoding
+async function calculateFullCommute(originAddress, destinationAddress) {
+  if (!originAddress || !destinationAddress) {
+    return null;
+  }
+
+  // If no API key, use straight-line fallback
+  if (!GOOGLE_MAPS_API_KEY) {
+    console.log('No Google Maps API key, using straight-line estimation');
+    return await calculateStraightLineDistance(originAddress, destinationAddress);
+  }
+
+  // Fetch all transport modes in parallel
+  const [transit, driving, walking] = await Promise.all([
+    calculateCommuteForMode(originAddress, destinationAddress, 'transit'),
+    calculateCommuteForMode(originAddress, destinationAddress, 'driving'),
+    calculateCommuteForMode(originAddress, destinationAddress, 'walking'),
+  ]);
+
+  // Use transit as primary, fallback to driving for distance
+  const primary = transit || driving || walking;
+  
+  if (!primary) {
+    return null;
+  }
+
+  return {
+    // Primary distance info
+    distanceKm: primary.distanceKm,
+    distanceText: primary.distanceText,
+    
+    // Transit commute
+    transitMinutes: transit?.durationMinutes || null,
+    transitText: transit?.durationText || null,
+    
+    // Driving commute
+    drivingMinutes: driving?.durationMinutes || null,
+    drivingText: driving?.durationText || null,
+    
+    // Walking commute
+    walkingMinutes: walking?.durationMinutes || null,
+    walkingText: walking?.durationText || null,
+    
+    // Legacy field for backwards compatibility
+    durationMinutes: transit?.durationMinutes || driving?.durationMinutes || null,
+    durationText: transit?.durationText || driving?.durationText || null,
+  };
+}
+
+// Fallback: straight-line distance
 async function calculateStraightLineDistance(origin, destination) {
   try {
-    // Try to geocode both addresses
     const originCoords = await geocodeAddress(origin);
     const destCoords = await geocodeAddress(destination);
 
@@ -125,17 +159,28 @@ async function calculateStraightLineDistance(origin, destination) {
       return null;
     }
 
-    // Calculate straight-line distance using Haversine formula
     const km = haversineDistance(
       originCoords.lat, originCoords.lng,
       destCoords.lat, destCoords.lng
     );
 
+    // Estimate times based on straight-line distance
+    const estimatedTransitMin = Math.round(km * 4); // ~15km/h average
+    const estimatedDrivingMin = Math.round(km * 2); // ~30km/h average in city
+    const estimatedWalkingMin = Math.round(km * 12); // ~5km/h
+
     return {
       distanceKm: Math.round(km * 10) / 10,
       distanceText: `${Math.round(km * 10) / 10} km (straight line)`,
-      durationMinutes: null,
-      durationText: null,
+      transitMinutes: estimatedTransitMin,
+      transitText: `~${estimatedTransitMin} min (estimated)`,
+      drivingMinutes: estimatedDrivingMin,
+      drivingText: `~${estimatedDrivingMin} min (estimated)`,
+      walkingMinutes: estimatedWalkingMin,
+      walkingText: `~${estimatedWalkingMin} min (estimated)`,
+      durationMinutes: estimatedTransitMin,
+      durationText: `~${estimatedTransitMin} min (estimated)`,
+      isEstimate: true,
     };
   } catch (error) {
     console.error('Straight-line distance error:', error.message);
@@ -145,7 +190,6 @@ async function calculateStraightLineDistance(origin, destination) {
 
 async function geocodeAddress(address) {
   if (!GOOGLE_MAPS_API_KEY) {
-    // Without API key, try a simple Poland-specific heuristic
     return null;
   }
 
@@ -173,7 +217,7 @@ async function geocodeAddress(address) {
 }
 
 function haversineDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371; // Earth's radius in km
+  const R = 6371;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const a =
@@ -358,10 +402,10 @@ async function parseOtodom($, url, baseLocationText = '') {
   // Translate description PL -> EN
   const descriptionEN = await translateToEnglish(descriptionPL);
 
-  // Calculate distance if base location provided
-  let distanceInfo = null;
+  // Calculate full commute data if base location provided
+  let commuteData = null;
   if (baseLocationText && location) {
-    distanceInfo = await calculateDistance(baseLocationText + ', Poland', location + ', Poland');
+    commuteData = await calculateFullCommute(baseLocationText + ', Poland', location + ', Poland');
   }
 
   const summary = {
@@ -386,11 +430,20 @@ async function parseOtodom($, url, baseLocationText = '') {
     // location
     address: location,
 
-    // distance
-    distanceKm: distanceInfo?.distanceKm || null,
-    distanceText: distanceInfo?.distanceText || null,
-    durationMinutes: distanceInfo?.durationMinutes || null,
-    durationText: distanceInfo?.durationText || null,
+    // commute data (full)
+    distanceKm: commuteData?.distanceKm || null,
+    distanceText: commuteData?.distanceText || null,
+    transitMinutes: commuteData?.transitMinutes || null,
+    transitText: commuteData?.transitText || null,
+    drivingMinutes: commuteData?.drivingMinutes || null,
+    drivingText: commuteData?.drivingText || null,
+    walkingMinutes: commuteData?.walkingMinutes || null,
+    walkingText: commuteData?.walkingText || null,
+    commuteIsEstimate: commuteData?.isEstimate || false,
+    
+    // Legacy fields for backwards compatibility
+    durationMinutes: commuteData?.durationMinutes || null,
+    durationText: commuteData?.durationText || null,
 
     // amenities + description
     amenities: amenitiesRaw.map(decorateAmenity),
