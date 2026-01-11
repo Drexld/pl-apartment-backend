@@ -113,14 +113,15 @@ async function calculateFullCommute(originAddress, destinationAddress) {
   }
 
   // Fetch all transport modes in parallel
-  const [transit, driving, walking] = await Promise.all([
+  const [transit, driving, bicycling, walking] = await Promise.all([
     calculateCommuteForMode(originAddress, destinationAddress, 'transit'),
     calculateCommuteForMode(originAddress, destinationAddress, 'driving'),
+    calculateCommuteForMode(originAddress, destinationAddress, 'bicycling'),
     calculateCommuteForMode(originAddress, destinationAddress, 'walking'),
   ]);
 
   // Use transit as primary, fallback to driving for distance
-  const primary = transit || driving || walking;
+  const primary = transit || driving || bicycling || walking;
   
   if (!primary) {
     return null;
@@ -138,6 +139,10 @@ async function calculateFullCommute(originAddress, destinationAddress) {
     // Driving commute
     drivingMinutes: driving?.durationMinutes || null,
     drivingText: driving?.durationText || null,
+    
+    // Bicycling commute
+    bicyclingMinutes: bicycling?.durationMinutes || null,
+    bicyclingText: bicycling?.durationText || null,
     
     // Walking commute
     walkingMinutes: walking?.durationMinutes || null,
@@ -167,6 +172,7 @@ async function calculateStraightLineDistance(origin, destination) {
     // Estimate times based on straight-line distance
     const estimatedTransitMin = Math.round(km * 4); // ~15km/h average
     const estimatedDrivingMin = Math.round(km * 2); // ~30km/h average in city
+    const estimatedBicyclingMin = Math.round(km * 3); // ~20km/h average
     const estimatedWalkingMin = Math.round(km * 12); // ~5km/h
 
     return {
@@ -176,6 +182,8 @@ async function calculateStraightLineDistance(origin, destination) {
       transitText: `~${estimatedTransitMin} min (estimated)`,
       drivingMinutes: estimatedDrivingMin,
       drivingText: `~${estimatedDrivingMin} min (estimated)`,
+      bicyclingMinutes: estimatedBicyclingMin,
+      bicyclingText: `~${estimatedBicyclingMin} min (estimated)`,
       walkingMinutes: estimatedWalkingMin,
       walkingText: `~${estimatedWalkingMin} min (estimated)`,
       durationMinutes: estimatedTransitMin,
@@ -437,6 +445,8 @@ async function parseOtodom($, url, baseLocationText = '') {
     transitText: commuteData?.transitText || null,
     drivingMinutes: commuteData?.drivingMinutes || null,
     drivingText: commuteData?.drivingText || null,
+    bicyclingMinutes: commuteData?.bicyclingMinutes || null,
+    bicyclingText: commuteData?.bicyclingText || null,
     walkingMinutes: commuteData?.walkingMinutes || null,
     walkingText: commuteData?.walkingText || null,
     commuteIsEstimate: commuteData?.isEstimate || false,
