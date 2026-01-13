@@ -1,6 +1,6 @@
 // server.js
 // Backend for Polish apartment listing summarizer (Otodom)
-// With multi-modal commute calculation, translation, and SMART DESCRIPTION PARSING
+// With multi-modal commute calculation, translation support, and smart description parsing
 
 const express = require('express');
 const cors = require('cors');
@@ -33,194 +33,194 @@ function parsePLNAmount(str) {
   return Number.isNaN(num) ? null : num;
 }
 
-// ---------- SMART DESCRIPTION PARSER ----------
-// Extracts hidden costs, inconsistencies, and important terms from description
+// ---------- Smart Description Parser ----------
 
-function parseDescriptionForHiddenInfo(descriptionText, structuredData = {}) {
+function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   const result = {
-    hiddenDeposit: null,
-    hiddenUtilities: null,
-    contractTerms: [],
-    notaryInfo: null,
     inconsistencies: [],
     importantNotes: [],
-    extractedAmounts: [],
+    hiddenDeposit: null,
+    hiddenUtilities: null,
+    contractTerms: null,
+    notaryInfo: null,
+    registrationAllowed: null,
+    advertiserType: null,
   };
 
-  if (!descriptionText || typeof descriptionText !== 'string') {
-    return result;
-  }
+  const textPL = (descriptionPL || '').toLowerCase();
+  const textEN = (descriptionEN || '').toLowerCase();
+  const combined = textPL + ' ' + textEN;
 
-  const text = descriptionText.toLowerCase();
-  const originalText = descriptionText;
-
-  // ===== DEPOSIT DETECTION =====
-  // Patterns: "deposit of PLN X", "kaucja X PLN", "refundable deposit", etc.
+  // DEPOSIT DETECTION
   const depositPatterns = [
-    /(?:deposit|kaucja|kaucji|kaucję)[^0-9]*?(\d[\d\s,.]*)\s*(?:pln|zł|zloty|złotych)?/gi,
-    /(?:pln|zł)\s*(\d[\d\s,.]*)\s*(?:deposit|kaucja|kaucji)/gi,
-    /(\d[\d\s,.]*)\s*(?:pln|zł|zloty|złotych)\s*(?:is required|deposit|kaucja|kaucji|as deposit)/gi,
-    /refundable\s*(?:deposit)?\s*(?:of)?\s*(?:pln)?\s*(\d[\d\s,.]*)/gi,
+    /(?:deposit|kaucja|depozyt)[^0-9]*?(\d[\d\s,.]*)\s*(?:pln|zł|zloty)/gi,
+    /(?:refundable|zwrotna)[^0-9]*?(\d[\d\s,.]*)\s*(?:pln|zł)/gi,
+    /(\d[\d\s,.]*)\s*(?:pln|zł)[^.]*(?:deposit|kaucja|depozyt)/gi,
   ];
 
   for (const pattern of depositPatterns) {
-    const matches = [...originalText.matchAll(pattern)];
+    const matches = combined.matchAll(pattern);
     for (const match of matches) {
       const amount = parseInt(match[1].replace(/[\s,.]/g, ''), 10);
-      if (amount && amount > 100 && amount < 50000) {
+      if (amount && amount > 500 && amount < 50000) {
         result.hiddenDeposit = amount;
-        result.extractedAmounts.push({ type: 'deposit', amount, context: match[0].trim() });
         break;
       }
     }
     if (result.hiddenDeposit) break;
   }
 
-  // ===== UTILITIES/ADMIN DETECTION =====
-  // Patterns: "utilities ~X PLN", "media X zł", "for one person X PLN"
+  // METERED UTILITIES DETECTION
   const utilityPatterns = [
-    /(?:utilities?|media|prąd|gaz|electricity|gas)[^0-9]*?[~≈]?\s*(\d[\d\s,.]*)\s*(?:pln|zł)/gi,
-    /(?:for one person|dla jednej osoby|for 1 person)[^0-9]*?[~≈]?\s*(\d[\d\s,.]*)\s*(?:pln|zł)/gi,
-    /(?:for two people?|dla dwóch osób|for 2 people?)[^0-9]*?[~≈]?\s*(\d[\d\s,.]*)\s*(?:pln|zł)/gi,
-    /[~≈]\s*(\d[\d\s,.]*)\s*(?:pln|zł)[^.]*(?:per month|miesięcznie|monthly|utilities)/gi,
-    /(?:amount|kwota)[^0-9]*(?:include|includes|should include)[^0-9]*?[~≈]?\s*(\d[\d\s,.]*)/gi,
-    /(?:meters?|licznik|według licznika)[^0-9]*?[~≈]?\s*(\d[\d\s,.]*)\s*(?:pln|zł)/gi,
+    /(?:for one person|dla jednej osoby|1 person)[^0-9]*?[~≈]?\s*(\d+)/gi,
+    /(?:for two|dla dwóch|2 person)[^0-9]*?[~≈]?\s*(\d+)/gi,
+    /(?:utilities|media|opłaty)[^0-9]*?[~≈]?\s*(\d+)[\s-]*(\d+)?/gi,
+    /[~≈]\s*(\d+)\s*(?:pln|zł)[^.]*(?:person|osob)/gi,
   ];
 
-  const utilityAmounts = [];
+  let utilityMin = null;
+  let utilityMax = null;
+
   for (const pattern of utilityPatterns) {
-    const matches = [...originalText.matchAll(pattern)];
+    const matches = combined.matchAll(pattern);
     for (const match of matches) {
-      const amount = parseInt(match[1].replace(/[\s,.]/g, ''), 10);
-      if (amount && amount > 10 && amount < 2000) {
-        utilityAmounts.push(amount);
-        result.extractedAmounts.push({ type: 'utility', amount, context: match[0].trim() });
+      const val1 = parseInt(match[1], 10);
+      const val2 = match[2] ? parseInt(match[2], 10) : null;
+      
+      if (val1 && val1 > 20 && val1 < 1000) {
+        if (!utilityMin || val1 < utilityMin) utilityMin = val1;
+        if (!utilityMax || val1 > utilityMax) utilityMax = val1;
+      }
+      if (val2 && val2 > 20 && val2 < 1000) {
+        if (!utilityMax || val2 > utilityMax) utilityMax = val2;
       }
     }
   }
 
-  if (utilityAmounts.length > 0) {
-    // Take the average or range
-    const minUtil = Math.min(...utilityAmounts);
-    const maxUtil = Math.max(...utilityAmounts);
+  if (utilityMin || utilityMax) {
     result.hiddenUtilities = {
-      min: minUtil,
-      max: maxUtil,
-      isMetered: text.includes('meter') || text.includes('licznik') || text.includes('according to'),
+      min: utilityMin || utilityMax,
+      max: utilityMax || utilityMin,
+      avg: Math.round(((utilityMin || utilityMax) + (utilityMax || utilityMin)) / 2),
     };
   }
 
-  // ===== CONTRACT TERMS =====
-  // Patterns: "12-month contract", "minimum X months", "notice period"
+  // CONTRACT TERMS
   const contractPatterns = [
-    { regex: /(\d+)[\s-]*(?:month|miesiąc|miesięc)[^.]*(?:contract|umowa|minimum|min\.?)/gi, type: 'duration' },
-    { regex: /(?:contract|umowa)[^.]*(\d+)[\s-]*(?:month|miesiąc|miesięc)/gi, type: 'duration' },
-    { regex: /(?:minimum|min\.?)[^.]*(\d+)[\s-]*(?:month|miesiąc)/gi, type: 'minimum' },
-    { regex: /(?:notice|wypowiedzenie)[^.]*(\d+)[\s-]*(?:month|miesiąc|week|tydzień)/gi, type: 'notice' },
+    /(\d+)[\s-]*(?:month|miesiąc|miesięc)[^.]*(?:contract|umowa|minimum)/gi,
+    /(?:minimum|min\.?|at least)[^0-9]*(\d+)[\s-]*(?:month|miesiąc)/gi,
+    /(?:contract|umowa)[^.]*(\d+)[\s-]*(?:month|miesiąc)/gi,
   ];
 
-  for (const { regex, type } of contractPatterns) {
-    const matches = [...originalText.matchAll(regex)];
-    for (const match of matches) {
+  for (const pattern of contractPatterns) {
+    const match = pattern.exec(combined);
+    if (match) {
       const months = parseInt(match[1], 10);
-      if (months && months > 0 && months <= 36) {
-        result.contractTerms.push({ type, months, context: match[0].trim() });
+      if (months >= 1 && months <= 36) {
+        result.contractTerms = { months };
+        result.importantNotes.push(months + '-month minimum contract mentioned');
+        break;
       }
     }
   }
 
-  // ===== NOTARY INFO =====
-  if (text.includes('notary') || text.includes('notariusz') || text.includes('notarial')) {
-    const notaryMatch = originalText.match(/(?:notary|notariusz|notarial)[^.]*?(\d+)?\s*%?/i);
-    result.notaryInfo = {
-      mentioned: true,
-      percentage: notaryMatch && notaryMatch[1] ? parseInt(notaryMatch[1], 10) : null,
-      context: notaryMatch ? notaryMatch[0].trim() : 'Notary mentioned',
-    };
-    result.importantNotes.push('Contract requires notary signing (additional cost)');
-  }
-
-  // ===== INCONSISTENCY DETECTION =====
-  // Compare description values with structured data
-  const structuredDeposit = structuredData.depositPLN;
-  if (result.hiddenDeposit && structuredDeposit) {
-    const diff = Math.abs(result.hiddenDeposit - structuredDeposit);
-    const percentDiff = (diff / Math.max(result.hiddenDeposit, structuredDeposit)) * 100;
-    
-    if (percentDiff > 20) {
-      result.inconsistencies.push({
-        type: 'deposit_mismatch',
-        severity: 'high',
-        listed: structuredDeposit,
-        inDescription: result.hiddenDeposit,
-        message: `Deposit mismatch: Listed as ${structuredDeposit} PLN but description says ${result.hiddenDeposit} PLN`,
-      });
+  // NOTARY REQUIREMENT
+  if (combined.includes('notary') || combined.includes('notariusz') || combined.includes('notarial')) {
+    result.notaryInfo = { required: true };
+    const costMatch = combined.match(/(\d+)\s*%[^.]*(?:notary|notariusz|cost|koszt)/i) ||
+                      combined.match(/(?:notary|notariusz)[^.]*(\d+)\s*%/i);
+    if (costMatch) {
+      result.notaryInfo.ownerPays = parseInt(costMatch[1], 10);
+      result.importantNotes.push('Notary contract required (owner covers ' + result.notaryInfo.ownerPays + '%)');
+    } else {
+      result.importantNotes.push('Notary contract required');
     }
   }
 
-  // If structured deposit is missing but found in description
-  if (result.hiddenDeposit && !structuredDeposit) {
-    result.importantNotes.push(`Deposit of ${result.hiddenDeposit} PLN found in description (not in listing fields)`);
-  }
-
-  // Check for metered utilities vs flat admin
-  const structuredAdmin = structuredData.adminPLN;
-  if (result.hiddenUtilities && result.hiddenUtilities.isMetered) {
-    if (structuredAdmin && structuredAdmin < 10) {
-      result.inconsistencies.push({
-        type: 'utility_hidden',
-        severity: 'medium',
-        message: `Listed admin is ${structuredAdmin} PLN but description mentions metered utilities (~${result.hiddenUtilities.min}-${result.hiddenUtilities.max} PLN)`,
-      });
-    }
-    result.importantNotes.push(`Utilities are metered: ~${result.hiddenUtilities.min}-${result.hiddenUtilities.max} PLN/month based on usage`);
-  }
-
-  // ===== IMPORTANT NOTES EXTRACTION =====
-  // Look for student restrictions, pet policies, etc.
-  if (text.includes('student') || text.includes('studentów')) {
-    if (text.includes('also rent to students') || text.includes('również studentom')) {
-      result.importantNotes.push('Students welcome');
-    } else if (text.includes('no students') || text.includes('bez studentów')) {
-      result.importantNotes.push('No students allowed');
-    }
-  }
-
-  if (text.includes('no pets') || text.includes('bez zwierząt') || text.includes('zakaz zwierząt')) {
-    result.importantNotes.push('No pets allowed');
-  } else if (text.includes('pets allowed') || text.includes('zwierzęta mile widziane') || text.includes('pets welcome')) {
-    result.importantNotes.push('Pets allowed');
-  }
-
-  if (text.includes('no smoking') || text.includes('niepalących') || text.includes('zakaz palenia')) {
-    result.importantNotes.push('Non-smokers only');
-  }
-
-  // Registration/zameldowanie
-  if (text.includes('zameldowanie') || text.includes('registration')) {
-    if (text.includes('no registration') || text.includes('bez zameldowania') || text.includes('brak możliwości zameldowania')) {
+  // REGISTRATION (ZAMELDOWANIE)
+  if (combined.includes('zameldowanie') || combined.includes('registration') || combined.includes('meldun')) {
+    if (combined.includes('bez zameldowania') || combined.includes('no registration') || 
+        combined.includes('without registration') || combined.includes('nie ma możliwości zameld')) {
+      result.registrationAllowed = false;
       result.importantNotes.push('Registration (zameldowanie) NOT possible');
-      result.inconsistencies.push({
-        type: 'no_registration',
-        severity: 'medium',
-        message: 'Registration not possible - may affect visa/residency',
-      });
-    } else if (text.includes('registration possible') || text.includes('możliwość zameldowania')) {
+    } else if (combined.includes('możliwość zameld') || combined.includes('registration possible') ||
+               combined.includes('zameldowanie możliwe')) {
+      result.registrationAllowed = true;
       result.importantNotes.push('Registration (zameldowanie) possible');
     }
   }
 
-  // Commission/agency fee hidden in description
-  if (text.includes('commission') || text.includes('prowizja') || text.includes('agency fee')) {
-    const commissionMatch = originalText.match(/(?:commission|prowizja|agency fee)[^.]*?(\d+)\s*%?/i);
-    if (commissionMatch) {
-      result.importantNotes.push(`Agency commission: ${commissionMatch[1]}%`);
-    } else {
-      result.importantNotes.push('Agency commission may apply (check with landlord)');
-    }
+  // ADVERTISER TYPE DETECTION
+  if (combined.includes('biuro') || combined.includes('agency') || combined.includes('pośrednik') ||
+      combined.includes('agent') || combined.includes('prowizja') || combined.includes('commission')) {
+    result.advertiserType = 'agency';
+  } else if (combined.includes('prywat') || combined.includes('private') || combined.includes('owner') ||
+             combined.includes('właściciel') || combined.includes('bez prowizji') || 
+             combined.includes('no commission') || combined.includes('bezpośrednio')) {
+    result.advertiserType = 'private';
+  }
+
+  // PET POLICY
+  if (combined.includes('no pets') || combined.includes('bez zwierząt') || combined.includes('no animals')) {
+    result.importantNotes.push('No pets allowed');
+  } else if (combined.includes('pets welcome') || combined.includes('zwierzęta mile') || 
+             combined.includes('pets allowed') || combined.includes('akceptujemy zwierzęta')) {
+    result.importantNotes.push('Pets allowed');
+  }
+
+  // SMOKING POLICY
+  if (combined.includes('no smoking') || combined.includes('niepalących') || combined.includes('zakaz palenia')) {
+    result.importantNotes.push('Non-smokers only');
+  }
+
+  // STUDENTS
+  if (combined.includes('no students') || combined.includes('bez studentów')) {
+    result.importantNotes.push('Not renting to students');
+  } else if (combined.includes('students welcome') || combined.includes('dla studentów') ||
+             combined.includes('studenci mile widziani')) {
+    result.importantNotes.push('Student-friendly');
   }
 
   return result;
+}
+
+function detectInconsistencies(summary, descriptionAnalysis) {
+  const inconsistencies = [];
+
+  if (descriptionAnalysis.hiddenDeposit && summary.depositPLN) {
+    const listedDeposit = summary.depositPLN;
+    const descDeposit = descriptionAnalysis.hiddenDeposit;
+    
+    if (Math.abs(descDeposit - listedDeposit) > listedDeposit * 0.2) {
+      inconsistencies.push({
+        type: 'deposit_mismatch',
+        severity: 'high',
+        message: 'Deposit mismatch: Listed as ' + listedDeposit + ' PLN but description mentions ' + descDeposit + ' PLN',
+        listedValue: listedDeposit,
+        descriptionValue: descDeposit,
+      });
+    }
+  }
+
+  if (descriptionAnalysis.hiddenUtilities && (!summary.adminPLN || summary.adminPLN < 10)) {
+    const utils = descriptionAnalysis.hiddenUtilities;
+    inconsistencies.push({
+      type: 'hidden_utilities',
+      severity: 'medium',
+      message: 'Utilities are metered: ~' + utils.min + '-' + utils.max + ' PLN/month (not included in listed admin fee)',
+      estimatedCost: utils,
+    });
+  }
+
+  if (descriptionAnalysis.registrationAllowed === false) {
+    inconsistencies.push({
+      type: 'no_registration',
+      severity: 'medium',
+      message: 'Registration (zameldowanie) not possible - may affect visa/residence permits',
+    });
+  }
+
+  return inconsistencies;
 }
 
 // ---------- Translation ----------
@@ -286,7 +286,7 @@ async function calculateCommuteForMode(origin, destination, mode) {
     
     return null;
   } catch (error) {
-    console.error(`Google Maps ${mode} error:`, error.message);
+    console.error('Google Maps ' + mode + ' error:', error.message);
     return null;
   }
 }
@@ -296,13 +296,11 @@ async function calculateFullCommute(originAddress, destinationAddress) {
     return null;
   }
 
-  // If no API key, use straight-line fallback
   if (!GOOGLE_MAPS_API_KEY) {
     console.log('No Google Maps API key, using straight-line estimation');
     return await calculateStraightLineDistance(originAddress, destinationAddress);
   }
 
-  // Fetch all transport modes in parallel
   const [transit, driving, bicycling, walking] = await Promise.all([
     calculateCommuteForMode(originAddress, destinationAddress, 'transit'),
     calculateCommuteForMode(originAddress, destinationAddress, 'driving'),
@@ -310,7 +308,6 @@ async function calculateFullCommute(originAddress, destinationAddress) {
     calculateCommuteForMode(originAddress, destinationAddress, 'walking'),
   ]);
 
-  // Use transit as primary, fallback to driving for distance
   const primary = transit || driving || bicycling || walking;
   
   if (!primary) {
@@ -318,33 +315,21 @@ async function calculateFullCommute(originAddress, destinationAddress) {
   }
 
   return {
-    // Primary distance info
     distanceKm: primary.distanceKm,
     distanceText: primary.distanceText,
-    
-    // Transit commute
     transitMinutes: transit?.durationMinutes || null,
     transitText: transit?.durationText || null,
-    
-    // Driving commute
     drivingMinutes: driving?.durationMinutes || null,
     drivingText: driving?.durationText || null,
-    
-    // Bicycling commute
     bicyclingMinutes: bicycling?.durationMinutes || null,
     bicyclingText: bicycling?.durationText || null,
-    
-    // Walking commute
     walkingMinutes: walking?.durationMinutes || null,
     walkingText: walking?.durationText || null,
-    
-    // Legacy fields for backwards compatibility
     durationMinutes: transit?.durationMinutes || driving?.durationMinutes || null,
     durationText: transit?.durationText || driving?.durationText || null,
   };
 }
 
-// Fallback: straight-line distance
 async function calculateStraightLineDistance(origin, destination) {
   try {
     const originCoords = await geocodeAddress(origin);
@@ -359,25 +344,24 @@ async function calculateStraightLineDistance(origin, destination) {
       destCoords.lat, destCoords.lng
     );
 
-    // Estimate times based on straight-line distance
-    const estimatedTransitMin = Math.round(km * 4); // ~15km/h average
-    const estimatedDrivingMin = Math.round(km * 2); // ~30km/h average in city
-    const estimatedBicyclingMin = Math.round(km * 3); // ~20km/h average
-    const estimatedWalkingMin = Math.round(km * 12); // ~5km/h
+    const estimatedTransitMin = Math.round(km * 4);
+    const estimatedDrivingMin = Math.round(km * 2);
+    const estimatedBicyclingMin = Math.round(km * 3);
+    const estimatedWalkingMin = Math.round(km * 12);
 
     return {
       distanceKm: Math.round(km * 10) / 10,
-      distanceText: `${Math.round(km * 10) / 10} km (straight line)`,
+      distanceText: Math.round(km * 10) / 10 + ' km (straight line)',
       transitMinutes: estimatedTransitMin,
-      transitText: `~${estimatedTransitMin} min (estimated)`,
+      transitText: '~' + estimatedTransitMin + ' min (estimated)',
       drivingMinutes: estimatedDrivingMin,
-      drivingText: `~${estimatedDrivingMin} min (estimated)`,
+      drivingText: '~' + estimatedDrivingMin + ' min (estimated)',
       bicyclingMinutes: estimatedBicyclingMin,
-      bicyclingText: `~${estimatedBicyclingMin} min (estimated)`,
+      bicyclingText: '~' + estimatedBicyclingMin + ' min (estimated)',
       walkingMinutes: estimatedWalkingMin,
-      walkingText: `~${estimatedWalkingMin} min (estimated)`,
+      walkingText: '~' + estimatedWalkingMin + ' min (estimated)',
       durationMinutes: estimatedTransitMin,
-      durationText: `~${estimatedTransitMin} min (estimated)`,
+      durationText: '~' + estimatedTransitMin + ' min (estimated)',
       isEstimate: true,
     };
   } catch (error) {
@@ -435,33 +419,18 @@ function toRad(deg) {
 const AMENITY_MAP = {
   'taras': { icon: '🌿', en: 'terrace' },
   'balkon': { icon: '🌇', en: 'balcony' },
-  'pom. użytkowe': { icon: '📦', en: 'utility room' },
-  'pom. użytkowy': { icon: '📦', en: 'utility room' },
   'meble': { icon: '🛋️', en: 'furniture' },
   'pralka': { icon: '🧺', en: 'washing machine' },
   'zmywarka': { icon: '🍽️', en: 'dishwasher' },
   'lodówka': { icon: '🧊', en: 'refrigerator' },
-  'kuchenka': { icon: '🔥', en: 'stove' },
-  'piekarnik': { icon: '🔥', en: 'oven' },
-  'telewizor': { icon: '📺', en: 'tv' },
   'klimatyzacja': { icon: '❄️', en: 'air conditioning' },
-  'rolety antywłamaniowe': { icon: '🛡️', en: 'anti-burglary blinds' },
-  'drzwi / okna antywłamaniowe': { icon: '🛡️', en: 'burglar-proof doors/windows' },
-  'domofon / wideofon': { icon: '📞', en: 'intercom / videophone' },
-  'system alarmowy': { icon: '🚨', en: 'alarm system' },
   'internet': { icon: '🌐', en: 'internet' },
-  'telewizja kablowa': { icon: '📺', en: 'cable tv' },
-  'telefon': { icon: '📞', en: 'phone' },
-  'teren zamknięty': { icon: '🚪', en: 'gated area' },
+  'teren zamknięty': { icon: '🔒', en: 'gated area' },
   'garaż': { icon: '🚗', en: 'garage' },
   'miejsce parkingowe': { icon: '🅿️', en: 'parking space' },
-  'tylko dla niepalących': { icon: '🚭', en: 'non-smokers only' },
   'piwnica': { icon: '📦', en: 'basement' },
   'winda': { icon: '🛗', en: 'elevator' },
   'ogród': { icon: '🌳', en: 'garden' },
-  'ogródek': { icon: '🌳', en: 'small garden' },
-  'komórka lokatorska': { icon: '📦', en: 'storage room' },
-  'monitoring / ochrona': { icon: '📹', en: 'monitoring / security' },
   'monitoring': { icon: '📹', en: 'monitoring' },
   'ochrona': { icon: '👮', en: 'security' },
 };
@@ -471,7 +440,7 @@ function decorateAmenity(amenity) {
   
   for (const [polishKey, value] of Object.entries(AMENITY_MAP)) {
     if (key.includes(polishKey)) {
-      return `${value.en} (${amenity})`;
+      return value.en + ' (' + amenity + ')';
     }
   }
   
@@ -546,18 +515,19 @@ function findOtodomProduct($) {
   return product;
 }
 
-async function parseOtodom($, url, baseLocationText = '') {
+async function parseOtodom($, url, baseLocationText) {
+  baseLocationText = baseLocationText || '';
   const product = findOtodomProduct($);
   if (!product) {
     throw new Error('Could not find structured data on page (Otodom JSON-LD).');
   }
 
   const additional = product.additionalProperty || [];
-  const getProp = (namePart) => {
+  const getProp = function(namePart) {
     const lower = namePart.toLowerCase();
-    const found = additional.find((p) =>
-      String(p.name || '').toLowerCase().includes(lower)
-    );
+    const found = additional.find(function(p) {
+      return String(p.name || '').toLowerCase().includes(lower);
+    });
     return found ? String(found.value).trim() : null;
   };
 
@@ -566,6 +536,7 @@ async function parseOtodom($, url, baseLocationText = '') {
   const availableFrom = getProp('dostępne od') || getProp('available from') || null;
   const admin = getProp('czynsz');
   const deposit = getProp('kaucja');
+  const advertiserTypeRaw = getProp('typ ogłoszeniodawcy') || getProp('advertiser type') || null;
 
   const infoAdditional = getProp('informacje dodatkowe') || '';
   const equip = getProp('wyposażenie') || '';
@@ -575,7 +546,7 @@ async function parseOtodom($, url, baseLocationText = '') {
 
   const amenitiesRaw = (infoAdditional + ', ' + equip + ', ' + media + ', ' + safety + ', ' + security)
     .split(',')
-    .map((x) => x.trim())
+    .map(function(x) { return x.trim(); })
     .filter(Boolean);
 
   const descriptionPL = stripHtml(product.description || '');
@@ -600,12 +571,33 @@ async function parseOtodom($, url, baseLocationText = '') {
   // Translate description PL -> EN
   const descriptionEN = await translateToEnglish(descriptionPL);
 
-  // ===== SMART DESCRIPTION PARSING =====
-  const descriptionAnalysis = parseDescriptionForHiddenInfo(descriptionEN, {
-    depositPLN,
-    adminPLN,
-    rentPLN,
-  });
+  // Smart description parsing
+  const descriptionAnalysis = parseDescriptionForHiddenInfo(descriptionPL, descriptionEN);
+  
+  // Detect inconsistencies
+  const inconsistencies = detectInconsistencies(
+    { depositPLN: depositPLN, adminPLN: adminPLN, rentPLN: rentPLN },
+    descriptionAnalysis
+  );
+  descriptionAnalysis.inconsistencies = inconsistencies;
+
+  // Calculate "true" values accounting for hidden info
+  const trueDepositPLN = descriptionAnalysis.hiddenDeposit && 
+                          descriptionAnalysis.hiddenDeposit > (depositPLN || 0) 
+                          ? descriptionAnalysis.hiddenDeposit 
+                          : depositPLN;
+  
+  const trueAdminPLN = descriptionAnalysis.hiddenUtilities 
+                        ? descriptionAnalysis.hiddenUtilities.avg 
+                        : adminPLN;
+  
+  const trueTotalPLN = rentPLN ? rentPLN + (trueAdminPLN || 0) : null;
+
+  // Determine advertiser type
+  let advertiserType = advertiserTypeRaw ? advertiserTypeRaw.toLowerCase() : null;
+  if (!advertiserType && descriptionAnalysis.advertiserType) {
+    advertiserType = descriptionAnalysis.advertiserType;
+  }
 
   // Calculate full commute data if base location provided
   let commuteData = null;
@@ -613,113 +605,67 @@ async function parseOtodom($, url, baseLocationText = '') {
     commuteData = await calculateFullCommute(baseLocationText + ', Poland', location + ', Poland');
   }
 
-  // Calculate TRUE total including hidden utilities
-  let trueTotalPLN = totalPLN;
-  let trueAdminPLN = adminPLN;
-  if (descriptionAnalysis.hiddenUtilities) {
-    const avgUtility = Math.round((descriptionAnalysis.hiddenUtilities.min + descriptionAnalysis.hiddenUtilities.max) / 2);
-    if (!adminPLN || adminPLN < 10) {
-      trueAdminPLN = avgUtility;
-      trueTotalPLN = rentPLN ? rentPLN + avgUtility : null;
-    }
-  }
-
-  // Use description deposit if structured is missing or inconsistent
-  let trueDepositPLN = depositPLN;
-  if (descriptionAnalysis.hiddenDeposit) {
-    if (!depositPLN) {
-      trueDepositPLN = descriptionAnalysis.hiddenDeposit;
-    } else if (descriptionAnalysis.hiddenDeposit > depositPLN) {
-      // Trust the higher amount (usually the real one)
-      trueDepositPLN = descriptionAnalysis.hiddenDeposit;
-    }
-  }
-
   const summary = {
     site: 'otodom.pl',
-    url,
-
-    // monetary fields (original from structured data)
-    rent: rentPLN ? `${rentPLN} PLN` : null,
+    url: url,
+    rent: rentPLN ? rentPLN + ' PLN' : null,
     rentPLN: rentPLN || null,
-    admin,
+    admin: admin,
     adminPLN: adminPLN || null,
-    deposit,
+    deposit: deposit,
     depositPLN: depositPLN || null,
-    totalPLN,
-
-    // TRUE values (accounting for description info)
-    trueAdminPLN,
-    trueTotalPLN,
-    trueDepositPLN,
+    totalPLN: totalPLN,
+    trueDepositPLN: trueDepositPLN,
+    trueAdminPLN: trueAdminPLN,
+    trueTotalPLN: trueTotalPLN,
     hiddenUtilities: descriptionAnalysis.hiddenUtilities,
-
-    // physical
+    advertiserType: advertiserType,
     rooms: rooms ? Number(rooms) : null,
-    area,
+    area: area,
     areaM2: areaNum,
-    availableFrom,
-
-    // location
+    availableFrom: availableFrom,
     address: location,
-
-    // commute data (full)
-    distanceKm: commuteData?.distanceKm || null,
-    distanceText: commuteData?.distanceText || null,
-    transitMinutes: commuteData?.transitMinutes || null,
-    transitText: commuteData?.transitText || null,
-    drivingMinutes: commuteData?.drivingMinutes || null,
-    drivingText: commuteData?.drivingText || null,
-    bicyclingMinutes: commuteData?.bicyclingMinutes || null,
-    bicyclingText: commuteData?.bicyclingText || null,
-    walkingMinutes: commuteData?.walkingMinutes || null,
-    walkingText: commuteData?.walkingText || null,
-    commuteIsEstimate: commuteData?.isEstimate || false,
-    
-    // Legacy fields for backwards compatibility
-    durationMinutes: commuteData?.durationMinutes || null,
-    durationText: commuteData?.durationText || null,
-
-    // amenities + description
+    distanceKm: commuteData ? commuteData.distanceKm : null,
+    distanceText: commuteData ? commuteData.distanceText : null,
+    transitMinutes: commuteData ? commuteData.transitMinutes : null,
+    transitText: commuteData ? commuteData.transitText : null,
+    drivingMinutes: commuteData ? commuteData.drivingMinutes : null,
+    drivingText: commuteData ? commuteData.drivingText : null,
+    bicyclingMinutes: commuteData ? commuteData.bicyclingMinutes : null,
+    bicyclingText: commuteData ? commuteData.bicyclingText : null,
+    walkingMinutes: commuteData ? commuteData.walkingMinutes : null,
+    walkingText: commuteData ? commuteData.walkingText : null,
+    commuteIsEstimate: commuteData ? commuteData.isEstimate : false,
+    durationMinutes: commuteData ? commuteData.durationMinutes : null,
+    durationText: commuteData ? commuteData.durationText : null,
     amenities: amenitiesRaw.map(decorateAmenity),
-    descriptionEN,
-
-    // ===== NEW: Description Analysis =====
-    descriptionAnalysis: {
-      inconsistencies: descriptionAnalysis.inconsistencies,
-      importantNotes: descriptionAnalysis.importantNotes,
-      contractTerms: descriptionAnalysis.contractTerms,
-      notaryInfo: descriptionAnalysis.notaryInfo,
-      extractedAmounts: descriptionAnalysis.extractedAmounts,
-    },
-
-    // extras used by insights / risk
-    hasTerraceOrBalcony,
-    hasInternet,
-    pricePerM2,
+    descriptionEN: descriptionEN,
+    descriptionAnalysis: descriptionAnalysis,
+    hasTerraceOrBalcony: hasTerraceOrBalcony,
+    hasInternet: hasInternet,
+    pricePerM2: pricePerM2,
   };
 
-  // Add insights + risk object (enhanced with description analysis)
-  summary.insights = generateInsights(summary, descriptionAnalysis);
+  summary.insights = generateInsights(summary);
   summary.risk = assessRisk(summary, descriptionAnalysis);
 
   return summary;
 }
 
-// ---------- Insights & Risk (ENHANCED) ----------
+// ---------- Insights & Risk ----------
 
-function generateInsights(summary, descriptionAnalysis = {}) {
+function generateInsights(summary) {
   const insights = [];
 
   if (summary.pricePerM2) {
-    insights.push(`Estimated price per m²: ${summary.pricePerM2} PLN (rent + admin, approx.).`);
+    insights.push('Estimated price per m²: ' + summary.pricePerM2 + ' PLN (rent + admin, approx.).');
   }
 
-  if (!summary.adminPLN && !descriptionAnalysis.hiddenUtilities) {
+  if (!summary.adminPLN) {
     insights.push('Admin / building fee is not clearly listed.');
   }
 
-  if (!summary.depositPLN && !descriptionAnalysis.hiddenDeposit) {
+  if (!summary.depositPLN) {
     insights.push('Deposit amount is not listed.');
   }
 
@@ -727,26 +673,11 @@ function generateInsights(summary, descriptionAnalysis = {}) {
     insights.push('Availability date is not specified.');
   }
 
-  // Add insights from description analysis
-  if (descriptionAnalysis.hiddenUtilities) {
-    insights.push(`Utilities are metered: ~${descriptionAnalysis.hiddenUtilities.min}-${descriptionAnalysis.hiddenUtilities.max} PLN/month`);
-  }
-
-  if (descriptionAnalysis.contractTerms && descriptionAnalysis.contractTerms.length > 0) {
-    const durationTerm = descriptionAnalysis.contractTerms.find(t => t.type === 'duration' || t.type === 'minimum');
-    if (durationTerm) {
-      insights.push(`Contract: ${durationTerm.months} month minimum`);
-    }
-  }
-
-  if (descriptionAnalysis.notaryInfo && descriptionAnalysis.notaryInfo.mentioned) {
-    insights.push('Notary contract required (additional signing cost)');
-  }
-
   return insights;
 }
 
-function assessRisk(summary, descriptionAnalysis = {}) {
+function assessRisk(summary, descriptionAnalysis) {
+  descriptionAnalysis = descriptionAnalysis || {};
   const flags = [];
   let riskScore = 0;
 
@@ -755,14 +686,26 @@ function assessRisk(summary, descriptionAnalysis = {}) {
   const deposit = summary.depositPLN;
   const ppm2 = summary.pricePerM2;
 
-  // Original risk checks
+  // Check for inconsistencies from description analysis
+  const inconsistencies = descriptionAnalysis.inconsistencies || [];
+  for (let i = 0; i < inconsistencies.length; i++) {
+    const inc = inconsistencies[i];
+    if (inc.severity === 'high') {
+      riskScore += 3;
+      flags.push('⚠️ ' + inc.message);
+    } else if (inc.severity === 'medium') {
+      riskScore += 2;
+      flags.push(inc.message);
+    }
+  }
+
   if (rent && deposit && deposit > 2 * rent) {
-    flags.push(`High deposit: more than 2× monthly rent.`);
+    flags.push('High deposit: more than 2× monthly rent.');
     riskScore += 2;
   }
 
   if (rent && admin && admin > 0.6 * rent) {
-    flags.push(`Admin / utilities are high compared to base rent.`);
+    flags.push('Admin / utilities are high compared to base rent.');
     riskScore += 1;
   }
 
@@ -772,17 +715,18 @@ function assessRisk(summary, descriptionAnalysis = {}) {
   }
 
   if (ppm2 && ppm2 < 40) {
-    flags.push('Price per m² seems very low – double-check for hidden costs.');
+    flags.push('Price per m² seems very low — double-check for hidden costs.');
     riskScore += 2;
   }
 
-  if (!admin) {
+  if (!admin && !descriptionAnalysis.hiddenUtilities) {
     riskScore += 1;
-    flags.push('Admin / utilities not specified in listing fields.');
+    flags.push('Admin / utilities not specified.');
   }
-  if (!deposit) {
+  
+  if (!deposit && !descriptionAnalysis.hiddenDeposit) {
     riskScore += 1;
-    flags.push('Deposit not specified in listing fields.');
+    flags.push('Deposit not specified.');
   }
 
   if (!summary.descriptionEN || summary.descriptionEN.length < 200) {
@@ -795,43 +739,14 @@ function assessRisk(summary, descriptionAnalysis = {}) {
     flags.push('Availability date not specified.');
   }
 
-  // ===== ENHANCED: Inconsistency-based risk =====
-  if (descriptionAnalysis.inconsistencies) {
-    for (const inconsistency of descriptionAnalysis.inconsistencies) {
-      if (inconsistency.severity === 'high') {
-        riskScore += 3;
-        flags.push(`⚠️ ${inconsistency.message}`);
-      } else if (inconsistency.severity === 'medium') {
-        riskScore += 2;
-        flags.push(`${inconsistency.message}`);
-      }
-    }
+  if (descriptionAnalysis.notaryInfo && descriptionAnalysis.notaryInfo.required) {
+    riskScore += 1;
+    flags.push('Notary contract required (adds complexity).');
   }
 
-  // Check for true deposit being much higher
-  if (summary.trueDepositPLN && summary.depositPLN && summary.trueDepositPLN > summary.depositPLN * 1.3) {
+  if (descriptionAnalysis.registrationAllowed === false) {
     riskScore += 2;
-    flags.push(`Actual deposit (${summary.trueDepositPLN} PLN) higher than listed (${summary.depositPLN} PLN)`);
-  }
-
-  // Hidden utilities warning
-  if (descriptionAnalysis.hiddenUtilities && (!admin || admin < 10)) {
-    riskScore += 1;
-    flags.push(`Hidden utilities: ~${descriptionAnalysis.hiddenUtilities.min}-${descriptionAnalysis.hiddenUtilities.max} PLN/month not in admin fee`);
-  }
-
-  // Notary requirement increases complexity
-  if (descriptionAnalysis.notaryInfo && descriptionAnalysis.notaryInfo.mentioned) {
-    riskScore += 1;
-    flags.push('Notary contract required – adds cost and complexity');
-  }
-
-  // No registration possible is a red flag for expats
-  if (descriptionAnalysis.importantNotes) {
-    if (descriptionAnalysis.importantNotes.some(n => n.includes('NOT possible'))) {
-      riskScore += 2;
-      flags.push('Registration (zameldowanie) not possible – affects visa/residency');
-    }
+    flags.push('Registration (zameldowanie) not possible.');
   }
 
   let level = 'Low';
@@ -840,14 +755,16 @@ function assessRisk(summary, descriptionAnalysis = {}) {
 
   const confidence = Math.max(40, 100 - riskScore * 5);
 
-  return { level, score: riskScore, confidence, notes: flags };
+  return { level: level, score: riskScore, confidence: confidence, notes: flags };
 }
 
 // ---------- Routes ----------
 
-app.post('/api/summarize', async (req, res) => {
+app.post('/api/summarize', async function(req, res) {
   try {
-    const { url, baseLocationText } = req.body || {};
+    const url = req.body ? req.body.url : null;
+    const baseLocationText = req.body ? req.body.baseLocationText : '';
+    
     if (!url) {
       return res.status(400).json({ success: false, error: 'URL is required' });
     }
@@ -868,7 +785,7 @@ app.post('/api/summarize', async (req, res) => {
 
     const $ = cheerio.load(response.data);
     const summary = await parseOtodom($, url, baseLocationText || '');
-    res.json({ success: true, summary });
+    res.json({ success: true, summary: summary });
   } catch (error) {
     console.error('Error in /api/summarize:', error.message);
     res.status(500).json({
@@ -879,15 +796,18 @@ app.post('/api/summarize', async (req, res) => {
   }
 });
 
-app.post('/api/summarize-html', async (req, res) => {
+app.post('/api/summarize-html', async function(req, res) {
   try {
-    const { html, url = '', baseLocationText = '' } = req.body || {};
+    const html = req.body ? req.body.html : null;
+    const url = req.body ? req.body.url : '';
+    const baseLocationText = req.body ? req.body.baseLocationText : '';
+    
     if (!html || typeof html !== 'string' || html.length < 1000) {
       return res.status(400).json({ success: false, error: 'Missing html' });
     }
     const $ = cheerio.load(html);
     const summary = await parseOtodom($, url, baseLocationText);
-    res.json({ success: true, summary });
+    res.json({ success: true, summary: summary });
   } catch (err) {
     console.error('Error in /api/summarize-html:', err);
     res.status(500).json({ success: false, error: err.message || 'Server error' });
@@ -895,12 +815,12 @@ app.post('/api/summarize-html', async (req, res) => {
 });
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/health', function(req, res) {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`DeepL API: ${DEEPL_API_KEY ? 'Configured' : 'Not configured'}`);
-  console.log(`Google Maps API: ${GOOGLE_MAPS_API_KEY ? 'Configured' : 'Not configured'}`);
+app.listen(PORT, function() {
+  console.log('Server running on http://localhost:' + PORT);
+  console.log('DeepL API: ' + (DEEPL_API_KEY ? 'Configured' : 'Not configured'));
+  console.log('Google Maps API: ' + (GOOGLE_MAPS_API_KEY ? 'Configured' : 'Not configured'));
 });
