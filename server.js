@@ -181,6 +181,107 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
     result.importantNotes.push('Student-friendly');
   }
 
+  // ADDITIONAL FEES DETECTION (internet, TV, parking, etc.)
+  result.additionalFees = [];
+  
+  // Internet fee
+  const internetPatterns = [
+    /internet[^0-9]*?(\d+)\s*(?:pln|zł)/gi,
+    /(\d+)\s*(?:pln|zł)[^.]*internet/gi,
+  ];
+  for (const pattern of internetPatterns) {
+    const match = pattern.exec(combined);
+    if (match) {
+      const amount = parseInt(match[1], 10);
+      if (amount >= 30 && amount <= 300) {
+        result.additionalFees.push({ type: 'internet', amount, label: 'Internet' });
+        break;
+      }
+    }
+  }
+
+  // TV/Cable fee
+  const tvPatterns = [
+    /(?:tv|telewizj|cable|upc|canal)[^0-9]*?(\d+)\s*(?:pln|zł)/gi,
+    /(\d+)\s*(?:pln|zł)[^.]*(?:tv|telewizj|cable)/gi,
+  ];
+  for (const pattern of tvPatterns) {
+    const match = pattern.exec(combined);
+    if (match) {
+      const amount = parseInt(match[1], 10);
+      if (amount >= 20 && amount <= 200) {
+        // Avoid duplicate if already caught with internet
+        if (!result.additionalFees.some(f => f.amount === amount)) {
+          result.additionalFees.push({ type: 'tv', amount, label: 'TV/Cable' });
+        }
+        break;
+      }
+    }
+  }
+
+  // Combined Internet + TV pattern (like "internet + UPC cable TV – PLN 120")
+  const internetTvComboPattern = /internet[^0-9]*(?:\+|and|oraz|i)[^0-9]*(?:tv|telewizj|upc|cable)[^0-9]*?(\d+)\s*(?:pln|zł)/gi;
+  const comboMatch = internetTvComboPattern.exec(combined);
+  if (comboMatch) {
+    const amount = parseInt(comboMatch[1], 10);
+    if (amount >= 50 && amount <= 300) {
+      // Remove individual internet/tv if we found combo
+      result.additionalFees = result.additionalFees.filter(f => f.type !== 'internet' && f.type !== 'tv');
+      result.additionalFees.push({ type: 'internet_tv', amount, label: 'Internet + TV' });
+    }
+  }
+
+  // Parking fee
+  const parkingPatterns = [
+    /(?:parking|garaż|garage|miejsce postojowe)[^0-9]*?(\d+)\s*(?:pln|zł)/gi,
+    /(\d+)\s*(?:pln|zł)[^.]*(?:parking|garaż|garage)/gi,
+  ];
+  for (const pattern of parkingPatterns) {
+    const match = pattern.exec(combined);
+    if (match) {
+      const amount = parseInt(match[1], 10);
+      if (amount >= 50 && amount <= 500) {
+        result.additionalFees.push({ type: 'parking', amount, label: 'Parking' });
+        break;
+      }
+    }
+  }
+
+  // METERED/CONSUMPTION-BASED FEES FLAG
+  result.hasMeteredFees = false;
+  result.meteredFeeTypes = [];
+  
+  const meteredPatterns = [
+    { pattern: /(?:meter|licznik|według zużycia|wg zużycia|according to consumption|based on consumption|faktyczne zużycie)/gi, type: 'general' },
+    { pattern: /(?:electricity|prąd|elektryczn)[^.]*(?:meter|licznik|zużyci|consumption)/gi, type: 'electricity' },
+    { pattern: /(?:gas|gaz)[^.]*(?:meter|licznik|zużyci|consumption)/gi, type: 'gas' },
+    { pattern: /(?:water|woda|wod)[^.]*(?:meter|licznik|zużyci|consumption)/gi, type: 'water' },
+    { pattern: /(?:meter fees|opłaty licznikowe|media według)/gi, type: 'general' },
+  ];
+  
+  for (const { pattern, type } of meteredPatterns) {
+    if (pattern.test(combined)) {
+      result.hasMeteredFees = true;
+      if (type !== 'general' && !result.meteredFeeTypes.includes(type)) {
+        result.meteredFeeTypes.push(type);
+      }
+    }
+  }
+
+  // If we detected metered fees but didn't catch specific types, mark as general utilities
+  if (result.hasMeteredFees && result.meteredFeeTypes.length === 0) {
+    // Check for specific mentions even without meter keywords
+    if (combined.includes('elektryczn') || combined.includes('electricity') || combined.includes('prąd')) {
+      result.meteredFeeTypes.push('electricity');
+    }
+    if (combined.includes('gaz') || combined.includes('gas')) {
+      result.meteredFeeTypes.push('gas');
+    }
+  }
+
+  // Calculate total additional fixed fees
+  result.totalAdditionalFees = result.additionalFees.reduce((sum, f) => sum + f.amount, 0);
+
   return result;
 }
 
@@ -217,6 +318,43 @@ function detectInconsistencies(summary, descriptionAnalysis) {
       type: 'no_registration',
       severity: 'medium',
       message: 'Registration (zameldowanie) not possible - may affect visa/residence permits',
+    });
+  }
+
+  // ADDITIONAL FIXED FEES WARNING
+  if (descriptionAnalysis.additionalFees && descriptionAnalysis.additionalFees.length > 0) {
+    const feesList = descriptionAnalysis.additionalFees.map(f => f.label + ': ' + f.amount + ' PLN').join(', ');
+    const totalExtra = descriptionAnalysis.totalAdditionalFees;
+    
+    inconsistencies.push({
+      type: 'additional_fees',
+      severity: 'high',
+      message: 'Additional monthly fees in description: ' + feesList + ' (+' + totalExtra + ' PLN/month)',
+      fees: descriptionAnalysis.additionalFees,
+      totalExtra: totalExtra,
+    });
+  }
+
+  // METERED FEES WARNING (electricity/gas according to consumption)
+  if (descriptionAnalysis.hasMeteredFees) {
+    const types = descriptionAnalysis.meteredFeeTypes;
+    let meterMsg = 'Some utilities are metered (pay by consumption)';
+    
+    if (types.length > 0) {
+      const typeLabels = types.map(t => {
+        if (t === 'electricity') return 'electricity';
+        if (t === 'gas') return 'gas';
+        if (t === 'water') return 'water';
+        return t;
+      });
+      meterMsg = 'Metered utilities: ' + typeLabels.join(', ') + ' - paid separately based on usage';
+    }
+    
+    inconsistencies.push({
+      type: 'metered_utilities',
+      severity: 'medium',
+      message: meterMsg,
+      meteredTypes: types,
     });
   }
 
@@ -883,7 +1021,9 @@ async function parseOtodom($, url, baseLocationText) {
                         ? descriptionAnalysis.hiddenUtilities.avg 
                         : adminPLN;
   
-  const trueTotalPLN = rentPLN ? rentPLN + (trueAdminPLN || 0) : null;
+  // Include additional fees (internet, TV, parking) in total if detected
+  const additionalFeesTotal = descriptionAnalysis.totalAdditionalFees || 0;
+  const trueTotalPLN = rentPLN ? rentPLN + (trueAdminPLN || 0) + additionalFeesTotal : null;
 
   // Determine advertiser type
   let advertiserType = advertiserTypeRaw ? advertiserTypeRaw.toLowerCase() : null;
@@ -917,6 +1057,10 @@ async function parseOtodom($, url, baseLocationText) {
     trueAdminPLN: trueAdminPLN,
     trueTotalPLN: trueTotalPLN,
     hiddenUtilities: descriptionAnalysis.hiddenUtilities,
+    additionalFees: descriptionAnalysis.additionalFees || [],
+    additionalFeesTotal: additionalFeesTotal,
+    hasMeteredFees: descriptionAnalysis.hasMeteredFees || false,
+    meteredFeeTypes: descriptionAnalysis.meteredFeeTypes || [],
     advertiserType: advertiserType,
     rooms: rooms ? Number(rooms) : null,
     area: area,
