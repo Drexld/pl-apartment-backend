@@ -361,6 +361,173 @@ function detectInconsistencies(summary, descriptionAnalysis) {
   return inconsistencies;
 }
 
+// ---------- Listing Intelligence (Age, Updates, Negotiation) ----------
+
+function extractListingIntelligence($, html) {
+  const result = {
+    listingId: null,
+    dateAdded: null,
+    dateUpdated: null,
+    daysOnMarket: null,
+    wasUpdated: false,
+    priceHistory: [],
+    negotiationPotential: null,
+    negotiationTips: [],
+  };
+
+  const bodyText = html || '';
+  const lowerText = bodyText.toLowerCase();
+
+  // Extract listing ID from URL or page
+  // Otodom IDs are usually like "ID4zELg" at end of URL or "ID: 67603514" in page
+  const idPatterns = [
+    /id[:\s]*(\d{6,10})/i,
+    /oferta[\/\-].*?-id([a-z0-9]+)/i,
+    /"offerId"[:\s]*"?(\d+)"?/i,
+    /"id"[:\s]*"?(\d+)"?.*?"__typename"[:\s]*"?Ad/i,
+  ];
+  
+  for (const pattern of idPatterns) {
+    const match = bodyText.match(pattern);
+    if (match) {
+      result.listingId = match[1];
+      break;
+    }
+  }
+
+  // Extract dates - Otodom typically shows "Dodano: DD.MM.YYYY" and "Aktualizacja: DD.MM.YYYY"
+  // Also look for JSON data with dateCreated, dateModified
+  
+  // Pattern 1: Polish format in visible text
+  const addedPatterns = [
+    /dodano[:\s]*(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/i,
+    /added[:\s]*(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/i,
+    /data dodania[:\s]*(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/i,
+    /"dateCreated"[:\s]*"(\d{4})-(\d{2})-(\d{2})/i,
+    /"createdAt"[:\s]*"(\d{4})-(\d{2})-(\d{2})/i,
+  ];
+
+  const updatedPatterns = [
+    /aktualiz[a-z]*[:\s]*(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/i,
+    /updated[:\s]*(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/i,
+    /ostatnia aktualiz[a-z]*[:\s]*(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/i,
+    /"dateModified"[:\s]*"(\d{4})-(\d{2})-(\d{2})/i,
+    /"modifiedAt"[:\s]*"(\d{4})-(\d{2})-(\d{2})/i,
+  ];
+
+  // Try to find added date
+  for (const pattern of addedPatterns) {
+    const match = bodyText.match(pattern);
+    if (match) {
+      // Check if it's ISO format (YYYY-MM-DD) or Polish format (DD.MM.YYYY)
+      let dateStr;
+      if (match[1].length === 4) {
+        // ISO format: YYYY-MM-DD
+        dateStr = `${match[1]}-${match[2]}-${match[3]}`;
+      } else {
+        // Polish format: DD.MM.YYYY - convert to ISO
+        const year = match[3].length === 2 ? '20' + match[3] : match[3];
+        dateStr = `${year}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+      }
+      
+      const parsed = new Date(dateStr);
+      if (!isNaN(parsed.getTime())) {
+        result.dateAdded = dateStr;
+        break;
+      }
+    }
+  }
+
+  // Try to find updated date
+  for (const pattern of updatedPatterns) {
+    const match = bodyText.match(pattern);
+    if (match) {
+      let dateStr;
+      if (match[1].length === 4) {
+        dateStr = `${match[1]}-${match[2]}-${match[3]}`;
+      } else {
+        const year = match[3].length === 2 ? '20' + match[3] : match[3];
+        dateStr = `${year}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+      }
+      
+      const parsed = new Date(dateStr);
+      if (!isNaN(parsed.getTime())) {
+        result.dateUpdated = dateStr;
+        result.wasUpdated = true;
+        break;
+      }
+    }
+  }
+
+  // Calculate days on market
+  if (result.dateAdded) {
+    const addedDate = new Date(result.dateAdded);
+    const now = new Date();
+    const diffTime = now.getTime() - addedDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    result.daysOnMarket = diffDays >= 0 ? diffDays : null;
+  }
+
+  // Look for price changes in the page data
+  // Otodom sometimes has "Historia cen" or price history in JSON
+  const priceHistoryPatterns = [
+    /"priceHistory"[:\s]*\[(.*?)\]/i,
+    /"previousPrice"[:\s]*(\d+)/i,
+    /cena poprzednia[:\s]*(\d[\d\s]*)/i,
+    /obniżka[:\s]*(\d+)/i,
+    /price drop|obniżono|reduced/i,
+  ];
+
+  // Check for price drop indicators
+  if (/obniżka|obniżono|reduced|price drop|przecena/i.test(bodyText)) {
+    result.priceDropped = true;
+    
+    // Try to extract previous price
+    const prevPriceMatch = bodyText.match(/(?:poprzednia cena|previous price|było)[:\s]*(\d[\d\s]*)\s*(?:pln|zł)/i);
+    if (prevPriceMatch) {
+      result.previousPrice = parseInt(prevPriceMatch[1].replace(/\s/g, ''), 10);
+    }
+  }
+
+  // Calculate negotiation potential based on days on market
+  if (result.daysOnMarket !== null) {
+    if (result.daysOnMarket <= 7) {
+      result.negotiationPotential = 'low';
+      result.negotiationTips.push('Fresh listing - landlord unlikely to negotiate yet');
+    } else if (result.daysOnMarket <= 21) {
+      result.negotiationPotential = 'low';
+      result.negotiationTips.push('Relatively new listing - limited negotiation room');
+    } else if (result.daysOnMarket <= 45) {
+      result.negotiationPotential = 'medium';
+      result.negotiationTips.push('Listed for ' + result.daysOnMarket + ' days - some room for negotiation');
+      result.negotiationTips.push('Try offering 5-10% below asking price');
+    } else if (result.daysOnMarket <= 90) {
+      result.negotiationPotential = 'high';
+      result.negotiationTips.push('On market for ' + result.daysOnMarket + ' days - landlord may be eager');
+      result.negotiationTips.push('Good chance to negotiate 10-15% off');
+      result.negotiationTips.push('Ask why it hasn\'t rented - there may be issues');
+    } else {
+      result.negotiationPotential = 'very-high';
+      result.negotiationTips.push('Listed for ' + result.daysOnMarket + '+ days - significant leverage');
+      result.negotiationTips.push('Landlord is likely frustrated - negotiate hard');
+      result.negotiationTips.push('Consider offering 15-20% below asking');
+      result.negotiationTips.push('Be cautious: ask why it\'s been available so long');
+    }
+
+    // Add tip if listing was recently updated
+    if (result.wasUpdated && result.dateUpdated !== result.dateAdded) {
+      result.negotiationTips.push('Listing was updated - landlord is actively trying to rent');
+    }
+
+    // Add tip if price dropped
+    if (result.priceDropped) {
+      result.negotiationTips.push('Price was already reduced - more drops possible');
+    }
+  }
+
+  return result;
+}
+
 // ---------- Translation ----------
 
 async function translateToEnglish(text) {
@@ -945,8 +1112,9 @@ function findOtodomProduct($) {
   return product;
 }
 
-async function parseOtodom($, url, baseLocationText) {
+async function parseOtodom($, url, baseLocationText, rawHtml) {
   baseLocationText = baseLocationText || '';
+  rawHtml = rawHtml || '';
   const product = findOtodomProduct($);
   if (!product) {
     throw new Error('Could not find structured data on page (Otodom JSON-LD).');
@@ -1003,6 +1171,9 @@ async function parseOtodom($, url, baseLocationText) {
 
   // Smart description parsing
   const descriptionAnalysis = parseDescriptionForHiddenInfo(descriptionPL, descriptionEN);
+  
+  // Extract listing intelligence (age, updates, negotiation potential)
+  const listingIntel = extractListingIntelligence($, rawHtml);
   
   // Detect inconsistencies
   const inconsistencies = detectInconsistencies(
@@ -1084,6 +1255,7 @@ async function parseOtodom($, url, baseLocationText) {
     amenities: amenitiesRaw.map(decorateAmenity),
     descriptionEN: descriptionEN,
     descriptionAnalysis: descriptionAnalysis,
+    listingIntel: listingIntel,
     hasTerraceOrBalcony: hasTerraceOrBalcony,
     hasInternet: hasInternet,
     pricePerM2: pricePerM2,
@@ -1227,7 +1399,7 @@ app.post('/api/summarize', async function(req, res) {
     });
 
     const $ = cheerio.load(response.data);
-    const summary = await parseOtodom($, url, baseLocationText || '');
+    const summary = await parseOtodom($, url, baseLocationText || '', response.data);
     res.json({ success: true, summary: summary });
   } catch (error) {
     console.error('Error in /api/summarize:', error.message);
@@ -1249,7 +1421,7 @@ app.post('/api/summarize-html', async function(req, res) {
       return res.status(400).json({ success: false, error: 'Missing html' });
     }
     const $ = cheerio.load(html);
-    const summary = await parseOtodom($, url, baseLocationText);
+    const summary = await parseOtodom($, url, baseLocationText, html);
     res.json({ success: true, summary: summary });
   } catch (err) {
     console.error('Error in /api/summarize-html:', err);
