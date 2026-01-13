@@ -414,7 +414,299 @@ function toRad(deg) {
   return deg * (Math.PI / 180);
 }
 
-// ---------- Amenity Mapping ----------
+// ---------- Nearby Places Discovery ----------
+
+async function discoverNearbyPlaces(address) {
+  if (!GOOGLE_MAPS_API_KEY || !address) {
+    return null;
+  }
+
+  try {
+    // First geocode the address to get coordinates
+    const coords = await geocodeAddress(address);
+    if (!coords) {
+      console.log('Could not geocode address for nearby places');
+      return null;
+    }
+
+    const lat = coords.lat;
+    const lng = coords.lng;
+
+    // Define all place categories we want to search
+    // Organized by lifestyle needs for expats
+    const categories = [
+      // Daily Essentials
+      { type: 'supermarket', label: 'Supermarket', icon: '🛒', radius: 800, category: 'essentials' },
+      { type: 'convenience_store', label: 'Convenience Store', icon: '🏪', radius: 500, category: 'essentials' },
+      { type: 'pharmacy', label: 'Pharmacy', icon: '💊', radius: 800, category: 'essentials' },
+      { type: 'bakery', label: 'Bakery', icon: '🥐', radius: 600, category: 'essentials' },
+      
+      // Transit & Mobility
+      { type: 'subway_station', label: 'Metro', icon: '🚇', radius: 1000, category: 'transit' },
+      { type: 'transit_station', label: 'Tram/Bus Stop', icon: '🚋', radius: 500, category: 'transit' },
+      { type: 'train_station', label: 'Train Station', icon: '🚆', radius: 2000, category: 'transit' },
+      
+      // Health & Fitness
+      { type: 'gym', label: 'Gym', icon: '🏋️', radius: 1000, category: 'health' },
+      { type: 'doctor', label: 'Doctor/Clinic', icon: '👨‍⚕️', radius: 1500, category: 'health' },
+      { type: 'hospital', label: 'Hospital', icon: '🏥', radius: 3000, category: 'health' },
+      { type: 'dentist', label: 'Dentist', icon: '🦷', radius: 1500, category: 'health' },
+      
+      // Food & Dining
+      { type: 'restaurant', label: 'Restaurant', icon: '🍽️', radius: 600, category: 'dining' },
+      { type: 'cafe', label: 'Café', icon: '☕', radius: 500, category: 'dining' },
+      { type: 'bar', label: 'Bar/Pub', icon: '🍺', radius: 800, category: 'nightlife' },
+      { type: 'night_club', label: 'Nightclub', icon: '🎉', radius: 1500, category: 'nightlife' },
+      
+      // Recreation & Lifestyle
+      { type: 'park', label: 'Park', icon: '🌳', radius: 800, category: 'recreation' },
+      { type: 'shopping_mall', label: 'Shopping Mall', icon: '🛍️', radius: 2000, category: 'shopping' },
+      { type: 'movie_theater', label: 'Cinema', icon: '🎬', radius: 2000, category: 'entertainment' },
+      
+      // Family & Kids
+      { type: 'school', label: 'School', icon: '🏫', radius: 1000, category: 'family' },
+      { type: 'playground', label: 'Playground', icon: '🛝', radius: 600, category: 'family' },
+      
+      // Services
+      { type: 'bank', label: 'Bank', icon: '🏦', radius: 1000, category: 'services' },
+      { type: 'atm', label: 'ATM', icon: '💳', radius: 500, category: 'services' },
+      { type: 'post_office', label: 'Post Office', icon: '📮', radius: 1500, category: 'services' },
+      { type: 'laundry', label: 'Laundry', icon: '🧺', radius: 800, category: 'services' },
+      
+      // Pets
+      { type: 'veterinary_care', label: 'Vet', icon: '🐾', radius: 2000, category: 'pets' },
+      { type: 'pet_store', label: 'Pet Store', icon: '🐕', radius: 1500, category: 'pets' },
+    ];
+
+    // Search for places in parallel (batch to avoid rate limits)
+    const batchSize = 5;
+    const results = {};
+    
+    for (let i = 0; i < categories.length; i += batchSize) {
+      const batch = categories.slice(i, i + batchSize);
+      const batchResults = await Promise.all(
+        batch.map(function(cat) {
+          return searchNearbyPlace(lat, lng, cat.type, cat.radius, cat.label, cat.icon, cat.category);
+        })
+      );
+      
+      batchResults.forEach(function(result) {
+        if (result) {
+          results[result.type] = result;
+        }
+      });
+      
+      // Small delay between batches to be nice to the API
+      if (i + batchSize < categories.length) {
+        await new Promise(function(resolve) { setTimeout(resolve, 100); });
+      }
+    }
+
+    // Organize results by category for the frontend
+    const organized = {
+      essentials: [],
+      transit: [],
+      health: [],
+      dining: [],
+      nightlife: [],
+      recreation: [],
+      shopping: [],
+      entertainment: [],
+      family: [],
+      services: [],
+      pets: [],
+    };
+
+    // Sort results into categories
+    Object.values(results).forEach(function(place) {
+      if (place && organized[place.category]) {
+        organized[place.category].push(place);
+      }
+    });
+
+    // Sort each category by distance
+    Object.keys(organized).forEach(function(cat) {
+      organized[cat].sort(function(a, b) {
+        return (a.distanceMeters || 9999) - (b.distanceMeters || 9999);
+      });
+    });
+
+    // Calculate overall walkability score (0-100)
+    const walkabilityScore = calculateWalkabilityScore(organized);
+
+    return {
+      coordinates: { lat: lat, lng: lng },
+      places: organized,
+      walkabilityScore: walkabilityScore,
+      summary: generateNearbySummary(organized),
+    };
+
+  } catch (error) {
+    console.error('Nearby places discovery error:', error.message);
+    return null;
+  }
+}
+
+async function searchNearbyPlace(lat, lng, placeType, radius, label, icon, category) {
+  try {
+    const response = await axios.get(
+      'https://maps.googleapis.com/maps/api/place/nearbysearch/json',
+      {
+        params: {
+          location: lat + ',' + lng,
+          radius: radius,
+          type: placeType,
+          key: GOOGLE_MAPS_API_KEY,
+        },
+        timeout: 5000,
+      }
+    );
+
+    if (response.data.status === 'OK' && response.data.results && response.data.results.length > 0) {
+      // Get the closest one
+      const closest = response.data.results[0];
+      const placeLat = closest.geometry.location.lat;
+      const placeLng = closest.geometry.location.lng;
+      
+      // Calculate distance
+      const distanceKm = haversineDistance(lat, lng, placeLat, placeLng);
+      const distanceMeters = Math.round(distanceKm * 1000);
+      const walkingMinutes = Math.round(distanceMeters / 80); // ~80m per minute walking
+      
+      return {
+        type: placeType,
+        category: category,
+        label: label,
+        icon: icon,
+        name: closest.name,
+        distanceMeters: distanceMeters,
+        distanceText: distanceMeters < 1000 ? distanceMeters + 'm' : (distanceKm.toFixed(1) + 'km'),
+        walkingMinutes: walkingMinutes,
+        walkingText: walkingMinutes + ' min walk',
+        rating: closest.rating || null,
+        totalRatings: closest.user_ratings_total || 0,
+        isOpen: closest.opening_hours ? closest.opening_hours.open_now : null,
+        vicinity: closest.vicinity || null,
+        found: true,
+      };
+    }
+    
+    // No results found
+    return {
+      type: placeType,
+      category: category,
+      label: label,
+      icon: icon,
+      name: null,
+      found: false,
+      distanceMeters: null,
+      message: 'None within ' + radius + 'm',
+    };
+
+  } catch (error) {
+    console.error('Place search error for ' + placeType + ':', error.message);
+    return null;
+  }
+}
+
+function calculateWalkabilityScore(organized) {
+  let score = 0;
+  let maxScore = 0;
+
+  // Essential services (heavily weighted)
+  const essentials = organized.essentials || [];
+  maxScore += 25;
+  if (essentials.some(function(p) { return p.found && p.distanceMeters < 500; })) score += 25;
+  else if (essentials.some(function(p) { return p.found && p.distanceMeters < 800; })) score += 15;
+  else if (essentials.some(function(p) { return p.found; })) score += 5;
+
+  // Transit (heavily weighted)
+  const transit = organized.transit || [];
+  maxScore += 25;
+  if (transit.some(function(p) { return p.found && p.type === 'subway_station' && p.distanceMeters < 800; })) score += 25;
+  else if (transit.some(function(p) { return p.found && p.distanceMeters < 400; })) score += 20;
+  else if (transit.some(function(p) { return p.found && p.distanceMeters < 800; })) score += 10;
+  else if (transit.some(function(p) { return p.found; })) score += 5;
+
+  // Health
+  const health = organized.health || [];
+  maxScore += 15;
+  if (health.some(function(p) { return p.found && p.type === 'pharmacy' && p.distanceMeters < 500; })) score += 10;
+  if (health.some(function(p) { return p.found && p.type === 'gym' && p.distanceMeters < 1000; })) score += 5;
+
+  // Dining & Lifestyle
+  const dining = organized.dining || [];
+  maxScore += 15;
+  if (dining.filter(function(p) { return p.found && p.distanceMeters < 500; }).length >= 2) score += 15;
+  else if (dining.some(function(p) { return p.found && p.distanceMeters < 500; })) score += 8;
+
+  // Recreation
+  const recreation = organized.recreation || [];
+  maxScore += 10;
+  if (recreation.some(function(p) { return p.found && p.type === 'park' && p.distanceMeters < 600; })) score += 10;
+  else if (recreation.some(function(p) { return p.found; })) score += 5;
+
+  // Services
+  const services = organized.services || [];
+  maxScore += 10;
+  if (services.some(function(p) { return p.found && p.type === 'atm' && p.distanceMeters < 500; })) score += 5;
+  if (services.some(function(p) { return p.found && p.type === 'bank' && p.distanceMeters < 1000; })) score += 5;
+
+  return Math.round((score / maxScore) * 100);
+}
+
+function generateNearbySummary(organized) {
+  const highlights = [];
+  const concerns = [];
+
+  // Check essentials
+  const hasGrocery = (organized.essentials || []).some(function(p) { 
+    return p.found && p.distanceMeters < 500; 
+  });
+  if (hasGrocery) highlights.push('Grocery store within 5 min walk');
+  else concerns.push('No grocery store within easy walking distance');
+
+  // Check transit
+  const hasMetro = (organized.transit || []).some(function(p) { 
+    return p.found && p.type === 'subway_station' && p.distanceMeters < 1000; 
+  });
+  const hasBus = (organized.transit || []).some(function(p) { 
+    return p.found && p.type === 'transit_station' && p.distanceMeters < 500; 
+  });
+  
+  if (hasMetro) highlights.push('Metro station nearby');
+  if (hasBus) highlights.push('Bus/tram stop within 5 min');
+  if (!hasMetro && !hasBus) concerns.push('Limited public transit access');
+
+  // Check park
+  const hasPark = (organized.recreation || []).some(function(p) { 
+    return p.found && p.type === 'park' && p.distanceMeters < 800; 
+  });
+  if (hasPark) highlights.push('Park nearby for walks & relaxation');
+
+  // Check nightlife
+  const hasNightlife = (organized.nightlife || []).some(function(p) { 
+    return p.found && p.distanceMeters < 1000; 
+  });
+  if (hasNightlife) highlights.push('Bars & nightlife within walking distance');
+
+  // Check pharmacy
+  const hasPharmacy = (organized.health || []).some(function(p) { 
+    return p.found && p.type === 'pharmacy' && p.distanceMeters < 800; 
+  });
+  if (!hasPharmacy) concerns.push('Pharmacy not within easy reach');
+
+  // Check gym
+  const hasGym = (organized.health || []).some(function(p) { 
+    return p.found && p.type === 'gym' && p.distanceMeters < 1000; 
+  });
+  if (hasGym) highlights.push('Gym accessible nearby');
+
+  return {
+    highlights: highlights,
+    concerns: concerns,
+  };
+}
 
 const AMENITY_MAP = {
   'taras': { icon: '🌿', en: 'terrace' },
@@ -605,6 +897,12 @@ async function parseOtodom($, url, baseLocationText) {
     commuteData = await calculateFullCommute(baseLocationText + ', Poland', location + ', Poland');
   }
 
+  // Discover nearby places for the listing location
+  let nearbyPlaces = null;
+  if (location) {
+    nearbyPlaces = await discoverNearbyPlaces(location + ', Poland');
+  }
+
   const summary = {
     site: 'otodom.pl',
     url: url,
@@ -625,6 +923,7 @@ async function parseOtodom($, url, baseLocationText) {
     areaM2: areaNum,
     availableFrom: availableFrom,
     address: location,
+    nearbyPlaces: nearbyPlaces,
     distanceKm: commuteData ? commuteData.distanceKm : null,
     distanceText: commuteData ? commuteData.distanceText : null,
     transitMinutes: commuteData ? commuteData.transitMinutes : null,
