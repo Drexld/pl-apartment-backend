@@ -1,6 +1,6 @@
 // server.js
 // Backend for Polish apartment listing summarizer (Otodom)
-// With multi-modal commute calculation and translation support
+// With multi-modal commute calculation, translation, and SMART DESCRIPTION PARSING
 
 const express = require('express');
 const cors = require('cors');
@@ -31,6 +31,196 @@ function parsePLNAmount(str) {
   if (!match) return null;
   const num = parseInt(match[0].replace(/\s/g, ''), 10);
   return Number.isNaN(num) ? null : num;
+}
+
+// ---------- SMART DESCRIPTION PARSER ----------
+// Extracts hidden costs, inconsistencies, and important terms from description
+
+function parseDescriptionForHiddenInfo(descriptionText, structuredData = {}) {
+  const result = {
+    hiddenDeposit: null,
+    hiddenUtilities: null,
+    contractTerms: [],
+    notaryInfo: null,
+    inconsistencies: [],
+    importantNotes: [],
+    extractedAmounts: [],
+  };
+
+  if (!descriptionText || typeof descriptionText !== 'string') {
+    return result;
+  }
+
+  const text = descriptionText.toLowerCase();
+  const originalText = descriptionText;
+
+  // ===== DEPOSIT DETECTION =====
+  // Patterns: "deposit of PLN X", "kaucja X PLN", "refundable deposit", etc.
+  const depositPatterns = [
+    /(?:deposit|kaucja|kaucji|kaucję)[^0-9]*?(\d[\d\s,.]*)\s*(?:pln|zł|zloty|złotych)?/gi,
+    /(?:pln|zł)\s*(\d[\d\s,.]*)\s*(?:deposit|kaucja|kaucji)/gi,
+    /(\d[\d\s,.]*)\s*(?:pln|zł|zloty|złotych)\s*(?:is required|deposit|kaucja|kaucji|as deposit)/gi,
+    /refundable\s*(?:deposit)?\s*(?:of)?\s*(?:pln)?\s*(\d[\d\s,.]*)/gi,
+  ];
+
+  for (const pattern of depositPatterns) {
+    const matches = [...originalText.matchAll(pattern)];
+    for (const match of matches) {
+      const amount = parseInt(match[1].replace(/[\s,.]/g, ''), 10);
+      if (amount && amount > 100 && amount < 50000) {
+        result.hiddenDeposit = amount;
+        result.extractedAmounts.push({ type: 'deposit', amount, context: match[0].trim() });
+        break;
+      }
+    }
+    if (result.hiddenDeposit) break;
+  }
+
+  // ===== UTILITIES/ADMIN DETECTION =====
+  // Patterns: "utilities ~X PLN", "media X zł", "for one person X PLN"
+  const utilityPatterns = [
+    /(?:utilities?|media|prąd|gaz|electricity|gas)[^0-9]*?[~≈]?\s*(\d[\d\s,.]*)\s*(?:pln|zł)/gi,
+    /(?:for one person|dla jednej osoby|for 1 person)[^0-9]*?[~≈]?\s*(\d[\d\s,.]*)\s*(?:pln|zł)/gi,
+    /(?:for two people?|dla dwóch osób|for 2 people?)[^0-9]*?[~≈]?\s*(\d[\d\s,.]*)\s*(?:pln|zł)/gi,
+    /[~≈]\s*(\d[\d\s,.]*)\s*(?:pln|zł)[^.]*(?:per month|miesięcznie|monthly|utilities)/gi,
+    /(?:amount|kwota)[^0-9]*(?:include|includes|should include)[^0-9]*?[~≈]?\s*(\d[\d\s,.]*)/gi,
+    /(?:meters?|licznik|według licznika)[^0-9]*?[~≈]?\s*(\d[\d\s,.]*)\s*(?:pln|zł)/gi,
+  ];
+
+  const utilityAmounts = [];
+  for (const pattern of utilityPatterns) {
+    const matches = [...originalText.matchAll(pattern)];
+    for (const match of matches) {
+      const amount = parseInt(match[1].replace(/[\s,.]/g, ''), 10);
+      if (amount && amount > 10 && amount < 2000) {
+        utilityAmounts.push(amount);
+        result.extractedAmounts.push({ type: 'utility', amount, context: match[0].trim() });
+      }
+    }
+  }
+
+  if (utilityAmounts.length > 0) {
+    // Take the average or range
+    const minUtil = Math.min(...utilityAmounts);
+    const maxUtil = Math.max(...utilityAmounts);
+    result.hiddenUtilities = {
+      min: minUtil,
+      max: maxUtil,
+      isMetered: text.includes('meter') || text.includes('licznik') || text.includes('according to'),
+    };
+  }
+
+  // ===== CONTRACT TERMS =====
+  // Patterns: "12-month contract", "minimum X months", "notice period"
+  const contractPatterns = [
+    { regex: /(\d+)[\s-]*(?:month|miesiąc|miesięc)[^.]*(?:contract|umowa|minimum|min\.?)/gi, type: 'duration' },
+    { regex: /(?:contract|umowa)[^.]*(\d+)[\s-]*(?:month|miesiąc|miesięc)/gi, type: 'duration' },
+    { regex: /(?:minimum|min\.?)[^.]*(\d+)[\s-]*(?:month|miesiąc)/gi, type: 'minimum' },
+    { regex: /(?:notice|wypowiedzenie)[^.]*(\d+)[\s-]*(?:month|miesiąc|week|tydzień)/gi, type: 'notice' },
+  ];
+
+  for (const { regex, type } of contractPatterns) {
+    const matches = [...originalText.matchAll(regex)];
+    for (const match of matches) {
+      const months = parseInt(match[1], 10);
+      if (months && months > 0 && months <= 36) {
+        result.contractTerms.push({ type, months, context: match[0].trim() });
+      }
+    }
+  }
+
+  // ===== NOTARY INFO =====
+  if (text.includes('notary') || text.includes('notariusz') || text.includes('notarial')) {
+    const notaryMatch = originalText.match(/(?:notary|notariusz|notarial)[^.]*?(\d+)?\s*%?/i);
+    result.notaryInfo = {
+      mentioned: true,
+      percentage: notaryMatch && notaryMatch[1] ? parseInt(notaryMatch[1], 10) : null,
+      context: notaryMatch ? notaryMatch[0].trim() : 'Notary mentioned',
+    };
+    result.importantNotes.push('Contract requires notary signing (additional cost)');
+  }
+
+  // ===== INCONSISTENCY DETECTION =====
+  // Compare description values with structured data
+  const structuredDeposit = structuredData.depositPLN;
+  if (result.hiddenDeposit && structuredDeposit) {
+    const diff = Math.abs(result.hiddenDeposit - structuredDeposit);
+    const percentDiff = (diff / Math.max(result.hiddenDeposit, structuredDeposit)) * 100;
+    
+    if (percentDiff > 20) {
+      result.inconsistencies.push({
+        type: 'deposit_mismatch',
+        severity: 'high',
+        listed: structuredDeposit,
+        inDescription: result.hiddenDeposit,
+        message: `Deposit mismatch: Listed as ${structuredDeposit} PLN but description says ${result.hiddenDeposit} PLN`,
+      });
+    }
+  }
+
+  // If structured deposit is missing but found in description
+  if (result.hiddenDeposit && !structuredDeposit) {
+    result.importantNotes.push(`Deposit of ${result.hiddenDeposit} PLN found in description (not in listing fields)`);
+  }
+
+  // Check for metered utilities vs flat admin
+  const structuredAdmin = structuredData.adminPLN;
+  if (result.hiddenUtilities && result.hiddenUtilities.isMetered) {
+    if (structuredAdmin && structuredAdmin < 10) {
+      result.inconsistencies.push({
+        type: 'utility_hidden',
+        severity: 'medium',
+        message: `Listed admin is ${structuredAdmin} PLN but description mentions metered utilities (~${result.hiddenUtilities.min}-${result.hiddenUtilities.max} PLN)`,
+      });
+    }
+    result.importantNotes.push(`Utilities are metered: ~${result.hiddenUtilities.min}-${result.hiddenUtilities.max} PLN/month based on usage`);
+  }
+
+  // ===== IMPORTANT NOTES EXTRACTION =====
+  // Look for student restrictions, pet policies, etc.
+  if (text.includes('student') || text.includes('studentów')) {
+    if (text.includes('also rent to students') || text.includes('również studentom')) {
+      result.importantNotes.push('Students welcome');
+    } else if (text.includes('no students') || text.includes('bez studentów')) {
+      result.importantNotes.push('No students allowed');
+    }
+  }
+
+  if (text.includes('no pets') || text.includes('bez zwierząt') || text.includes('zakaz zwierząt')) {
+    result.importantNotes.push('No pets allowed');
+  } else if (text.includes('pets allowed') || text.includes('zwierzęta mile widziane') || text.includes('pets welcome')) {
+    result.importantNotes.push('Pets allowed');
+  }
+
+  if (text.includes('no smoking') || text.includes('niepalących') || text.includes('zakaz palenia')) {
+    result.importantNotes.push('Non-smokers only');
+  }
+
+  // Registration/zameldowanie
+  if (text.includes('zameldowanie') || text.includes('registration')) {
+    if (text.includes('no registration') || text.includes('bez zameldowania') || text.includes('brak możliwości zameldowania')) {
+      result.importantNotes.push('Registration (zameldowanie) NOT possible');
+      result.inconsistencies.push({
+        type: 'no_registration',
+        severity: 'medium',
+        message: 'Registration not possible - may affect visa/residency',
+      });
+    } else if (text.includes('registration possible') || text.includes('możliwość zameldowania')) {
+      result.importantNotes.push('Registration (zameldowanie) possible');
+    }
+  }
+
+  // Commission/agency fee hidden in description
+  if (text.includes('commission') || text.includes('prowizja') || text.includes('agency fee')) {
+    const commissionMatch = originalText.match(/(?:commission|prowizja|agency fee)[^.]*?(\d+)\s*%?/i);
+    if (commissionMatch) {
+      result.importantNotes.push(`Agency commission: ${commissionMatch[1]}%`);
+    } else {
+      result.importantNotes.push('Agency commission may apply (check with landlord)');
+    }
+  }
+
+  return result;
 }
 
 // ---------- Translation ----------
@@ -148,7 +338,7 @@ async function calculateFullCommute(originAddress, destinationAddress) {
     walkingMinutes: walking?.durationMinutes || null,
     walkingText: walking?.durationText || null,
     
-    // Legacy field for backwards compatibility
+    // Legacy fields for backwards compatibility
     durationMinutes: transit?.durationMinutes || driving?.durationMinutes || null,
     durationText: transit?.durationText || driving?.durationText || null,
   };
@@ -410,17 +600,46 @@ async function parseOtodom($, url, baseLocationText = '') {
   // Translate description PL -> EN
   const descriptionEN = await translateToEnglish(descriptionPL);
 
+  // ===== SMART DESCRIPTION PARSING =====
+  const descriptionAnalysis = parseDescriptionForHiddenInfo(descriptionEN, {
+    depositPLN,
+    adminPLN,
+    rentPLN,
+  });
+
   // Calculate full commute data if base location provided
   let commuteData = null;
   if (baseLocationText && location) {
     commuteData = await calculateFullCommute(baseLocationText + ', Poland', location + ', Poland');
   }
 
+  // Calculate TRUE total including hidden utilities
+  let trueTotalPLN = totalPLN;
+  let trueAdminPLN = adminPLN;
+  if (descriptionAnalysis.hiddenUtilities) {
+    const avgUtility = Math.round((descriptionAnalysis.hiddenUtilities.min + descriptionAnalysis.hiddenUtilities.max) / 2);
+    if (!adminPLN || adminPLN < 10) {
+      trueAdminPLN = avgUtility;
+      trueTotalPLN = rentPLN ? rentPLN + avgUtility : null;
+    }
+  }
+
+  // Use description deposit if structured is missing or inconsistent
+  let trueDepositPLN = depositPLN;
+  if (descriptionAnalysis.hiddenDeposit) {
+    if (!depositPLN) {
+      trueDepositPLN = descriptionAnalysis.hiddenDeposit;
+    } else if (descriptionAnalysis.hiddenDeposit > depositPLN) {
+      // Trust the higher amount (usually the real one)
+      trueDepositPLN = descriptionAnalysis.hiddenDeposit;
+    }
+  }
+
   const summary = {
     site: 'otodom.pl',
     url,
 
-    // monetary fields
+    // monetary fields (original from structured data)
     rent: rentPLN ? `${rentPLN} PLN` : null,
     rentPLN: rentPLN || null,
     admin,
@@ -428,6 +647,12 @@ async function parseOtodom($, url, baseLocationText = '') {
     deposit,
     depositPLN: depositPLN || null,
     totalPLN,
+
+    // TRUE values (accounting for description info)
+    trueAdminPLN,
+    trueTotalPLN,
+    trueDepositPLN,
+    hiddenUtilities: descriptionAnalysis.hiddenUtilities,
 
     // physical
     rooms: rooms ? Number(rooms) : null,
@@ -459,33 +684,42 @@ async function parseOtodom($, url, baseLocationText = '') {
     amenities: amenitiesRaw.map(decorateAmenity),
     descriptionEN,
 
+    // ===== NEW: Description Analysis =====
+    descriptionAnalysis: {
+      inconsistencies: descriptionAnalysis.inconsistencies,
+      importantNotes: descriptionAnalysis.importantNotes,
+      contractTerms: descriptionAnalysis.contractTerms,
+      notaryInfo: descriptionAnalysis.notaryInfo,
+      extractedAmounts: descriptionAnalysis.extractedAmounts,
+    },
+
     // extras used by insights / risk
     hasTerraceOrBalcony,
     hasInternet,
     pricePerM2,
   };
 
-  // Add insights + risk object
-  summary.insights = generateInsights(summary);
-  summary.risk = assessRisk(summary);
+  // Add insights + risk object (enhanced with description analysis)
+  summary.insights = generateInsights(summary, descriptionAnalysis);
+  summary.risk = assessRisk(summary, descriptionAnalysis);
 
   return summary;
 }
 
-// ---------- Insights & Risk ----------
+// ---------- Insights & Risk (ENHANCED) ----------
 
-function generateInsights(summary) {
+function generateInsights(summary, descriptionAnalysis = {}) {
   const insights = [];
 
   if (summary.pricePerM2) {
     insights.push(`Estimated price per m²: ${summary.pricePerM2} PLN (rent + admin, approx.).`);
   }
 
-  if (!summary.adminPLN) {
+  if (!summary.adminPLN && !descriptionAnalysis.hiddenUtilities) {
     insights.push('Admin / building fee is not clearly listed.');
   }
 
-  if (!summary.depositPLN) {
+  if (!summary.depositPLN && !descriptionAnalysis.hiddenDeposit) {
     insights.push('Deposit amount is not listed.');
   }
 
@@ -493,10 +727,26 @@ function generateInsights(summary) {
     insights.push('Availability date is not specified.');
   }
 
+  // Add insights from description analysis
+  if (descriptionAnalysis.hiddenUtilities) {
+    insights.push(`Utilities are metered: ~${descriptionAnalysis.hiddenUtilities.min}-${descriptionAnalysis.hiddenUtilities.max} PLN/month`);
+  }
+
+  if (descriptionAnalysis.contractTerms && descriptionAnalysis.contractTerms.length > 0) {
+    const durationTerm = descriptionAnalysis.contractTerms.find(t => t.type === 'duration' || t.type === 'minimum');
+    if (durationTerm) {
+      insights.push(`Contract: ${durationTerm.months} month minimum`);
+    }
+  }
+
+  if (descriptionAnalysis.notaryInfo && descriptionAnalysis.notaryInfo.mentioned) {
+    insights.push('Notary contract required (additional signing cost)');
+  }
+
   return insights;
 }
 
-function assessRisk(summary) {
+function assessRisk(summary, descriptionAnalysis = {}) {
   const flags = [];
   let riskScore = 0;
 
@@ -505,6 +755,7 @@ function assessRisk(summary) {
   const deposit = summary.depositPLN;
   const ppm2 = summary.pricePerM2;
 
+  // Original risk checks
   if (rent && deposit && deposit > 2 * rent) {
     flags.push(`High deposit: more than 2× monthly rent.`);
     riskScore += 2;
@@ -527,11 +778,11 @@ function assessRisk(summary) {
 
   if (!admin) {
     riskScore += 1;
-    flags.push('Admin / utilities not specified.');
+    flags.push('Admin / utilities not specified in listing fields.');
   }
   if (!deposit) {
     riskScore += 1;
-    flags.push('Deposit not specified.');
+    flags.push('Deposit not specified in listing fields.');
   }
 
   if (!summary.descriptionEN || summary.descriptionEN.length < 200) {
@@ -542,6 +793,45 @@ function assessRisk(summary) {
   if (!summary.availableFrom) {
     riskScore += 1;
     flags.push('Availability date not specified.');
+  }
+
+  // ===== ENHANCED: Inconsistency-based risk =====
+  if (descriptionAnalysis.inconsistencies) {
+    for (const inconsistency of descriptionAnalysis.inconsistencies) {
+      if (inconsistency.severity === 'high') {
+        riskScore += 3;
+        flags.push(`⚠️ ${inconsistency.message}`);
+      } else if (inconsistency.severity === 'medium') {
+        riskScore += 2;
+        flags.push(`${inconsistency.message}`);
+      }
+    }
+  }
+
+  // Check for true deposit being much higher
+  if (summary.trueDepositPLN && summary.depositPLN && summary.trueDepositPLN > summary.depositPLN * 1.3) {
+    riskScore += 2;
+    flags.push(`Actual deposit (${summary.trueDepositPLN} PLN) higher than listed (${summary.depositPLN} PLN)`);
+  }
+
+  // Hidden utilities warning
+  if (descriptionAnalysis.hiddenUtilities && (!admin || admin < 10)) {
+    riskScore += 1;
+    flags.push(`Hidden utilities: ~${descriptionAnalysis.hiddenUtilities.min}-${descriptionAnalysis.hiddenUtilities.max} PLN/month not in admin fee`);
+  }
+
+  // Notary requirement increases complexity
+  if (descriptionAnalysis.notaryInfo && descriptionAnalysis.notaryInfo.mentioned) {
+    riskScore += 1;
+    flags.push('Notary contract required – adds cost and complexity');
+  }
+
+  // No registration possible is a red flag for expats
+  if (descriptionAnalysis.importantNotes) {
+    if (descriptionAnalysis.importantNotes.some(n => n.includes('NOT possible'))) {
+      riskScore += 2;
+      flags.push('Registration (zameldowanie) not possible – affects visa/residency');
+    }
   }
 
   let level = 'Low';
