@@ -70,12 +70,12 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
     if (result.hiddenDeposit) break;
   }
 
-  // METERED UTILITIES DETECTION
+  // METERED UTILITIES DETECTION - ONLY extract if EXPLICITLY stated as "per person" utility costs
+  // Be very strict - only match clear "utilities ~X PLN per person" patterns
   const utilityPatterns = [
-    /(?:for one person|dla jednej osoby|1 person)[^0-9]*?[~≈]?\s*(\d+)/gi,
-    /(?:for two|dla dwóch|2 person)[^0-9]*?[~≈]?\s*(\d+)/gi,
-    /(?:utilities|media|opłaty)[^0-9]*?[~≈]?\s*(\d+)[\s-]*(\d+)?/gi,
-    /[~≈]\s*(\d+)\s*(?:pln|zł)[^.]*(?:person|osob)/gi,
+    /(?:media|utilities|opłaty licznikowe)[^0-9]{0,20}(?:ok\.?|około|approx\.?|~|≈)\s*(\d+)(?:\s*-\s*(\d+))?\s*(?:pln|zł)[^0-9]{0,20}(?:osob|person|miesięc|month)/gi,
+    /(?:for one person|dla jednej osoby|na 1 osobę)[^0-9]{0,15}(?:ok\.?|około|~|≈)?\s*(\d+)\s*(?:pln|zł)/gi,
+    /(?:for two|dla dwóch|na 2 osob)[^0-9]{0,15}(?:ok\.?|około|~|≈)?\s*(\d+)\s*(?:pln|zł)/gi,
   ];
 
   let utilityMin = null;
@@ -87,11 +87,12 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
       const val1 = parseInt(match[1], 10);
       const val2 = match[2] ? parseInt(match[2], 10) : null;
       
-      if (val1 && val1 > 20 && val1 < 1000) {
+      // Only accept values that are clearly utility costs (50-500 PLN range for per-person utilities)
+      if (val1 && val1 >= 50 && val1 <= 500) {
         if (!utilityMin || val1 < utilityMin) utilityMin = val1;
         if (!utilityMax || val1 > utilityMax) utilityMax = val1;
       }
-      if (val2 && val2 > 20 && val2 < 1000) {
+      if (val2 && val2 >= 50 && val2 <= 500) {
         if (!utilityMax || val2 > utilityMax) utilityMax = val2;
       }
     }
@@ -182,68 +183,72 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   }
 
   // ADDITIONAL FEES DETECTION (internet, TV, parking, etc.)
+  // Be VERY careful not to pick up random numbers like bus lines, distances, m2, etc.
   result.additionalFees = [];
   
-  // Internet fee
-  const internetPatterns = [
-    /internet[^0-9]*?(\d+)\s*(?:pln|zł)/gi,
-    /(\d+)\s*(?:pln|zł)[^.]*internet/gi,
-  ];
-  for (const pattern of internetPatterns) {
-    const match = pattern.exec(combined);
-    if (match) {
-      const amount = parseInt(match[1], 10);
-      if (amount >= 30 && amount <= 300) {
-        result.additionalFees.push({ type: 'internet', amount, label: 'Internet' });
-        break;
-      }
+  // Helper: Check if number appears in a "bad" context (bus, distance, m2, floor, etc.)
+  const isNumberInBadContext = (text, matchIndex, matchLength) => {
+    const before = text.substring(Math.max(0, matchIndex - 50), matchIndex).toLowerCase();
+    const after = text.substring(matchIndex + matchLength, matchIndex + matchLength + 50).toLowerCase();
+    const context = before + after;
+    
+    // Bad contexts to exclude
+    const badPatterns = [
+      /lini[ae]|line|bus|autobus|tramwaj|tram|metro/,
+      /\d+\s*m[²2\s]|metr|square/,  // Square meters
+      /floor|piętro|piętr/,
+      /km|kilom|odległ|distance|od\s+/,
+      /rok|year|lat\s/,
+      /osób|person|people|mieszk/,  // Number of people
+      /numer|number|nr\s/,
+      /id[:\s]/,
+      /telefon|phone|tel[:\.\s]/,
+    ];
+    
+    return badPatterns.some(p => p.test(context));
+  };
+  
+  // Internet fee - must be explicitly labeled
+  const internetMatch = combined.match(/internet[^0-9]{0,30}?(\d{2,3})\s*(?:pln|zł)/i) ||
+                        combined.match(/(\d{2,3})\s*(?:pln|zł)[^.]{0,20}internet/i);
+  if (internetMatch) {
+    const amount = parseInt(internetMatch[1], 10);
+    const matchIndex = combined.indexOf(internetMatch[0]);
+    if (amount >= 40 && amount <= 200 && !isNumberInBadContext(combined, matchIndex, internetMatch[0].length)) {
+      result.additionalFees.push({ type: 'internet', amount, label: 'Internet' });
     }
   }
 
-  // TV/Cable fee
-  const tvPatterns = [
-    /(?:tv|telewizj|cable|upc|canal)[^0-9]*?(\d+)\s*(?:pln|zł)/gi,
-    /(\d+)\s*(?:pln|zł)[^.]*(?:tv|telewizj|cable)/gi,
-  ];
-  for (const pattern of tvPatterns) {
-    const match = pattern.exec(combined);
-    if (match) {
-      const amount = parseInt(match[1], 10);
-      if (amount >= 20 && amount <= 200) {
-        // Avoid duplicate if already caught with internet
-        if (!result.additionalFees.some(f => f.amount === amount)) {
-          result.additionalFees.push({ type: 'tv', amount, label: 'TV/Cable' });
-        }
-        break;
-      }
+  // TV/Cable fee - must be explicitly labeled
+  const tvMatch = combined.match(/(?:tv|telewizj|cable|kablów)[^0-9]{0,20}?(\d{2,3})\s*(?:pln|zł)/i) ||
+                  combined.match(/(\d{2,3})\s*(?:pln|zł)[^.]{0,15}(?:tv|telewizj|cable)/i);
+  if (tvMatch && !result.additionalFees.some(f => f.type === 'internet')) {
+    const amount = parseInt(tvMatch[1], 10);
+    const matchIndex = combined.indexOf(tvMatch[0]);
+    if (amount >= 30 && amount <= 150 && !isNumberInBadContext(combined, matchIndex, tvMatch[0].length)) {
+      result.additionalFees.push({ type: 'tv', amount, label: 'TV/Cable' });
     }
   }
 
-  // Combined Internet + TV pattern (like "internet + UPC cable TV – PLN 120")
-  const internetTvComboPattern = /internet[^0-9]*(?:\+|and|oraz|i)[^0-9]*(?:tv|telewizj|upc|cable)[^0-9]*?(\d+)\s*(?:pln|zł)/gi;
-  const comboMatch = internetTvComboPattern.exec(combined);
+  // Combined Internet + TV pattern (like "internet + TV – 120 PLN")
+  const comboMatch = combined.match(/internet[^0-9]{0,10}(?:\+|and|oraz|i)[^0-9]{0,10}(?:tv|telewizj|upc|cable)[^0-9]{0,15}?(\d{2,3})\s*(?:pln|zł)/i);
   if (comboMatch) {
     const amount = parseInt(comboMatch[1], 10);
-    if (amount >= 50 && amount <= 300) {
+    if (amount >= 60 && amount <= 250) {
       // Remove individual internet/tv if we found combo
       result.additionalFees = result.additionalFees.filter(f => f.type !== 'internet' && f.type !== 'tv');
       result.additionalFees.push({ type: 'internet_tv', amount, label: 'Internet + TV' });
     }
   }
 
-  // Parking fee
-  const parkingPatterns = [
-    /(?:parking|garaż|garage|miejsce postojowe)[^0-9]*?(\d+)\s*(?:pln|zł)/gi,
-    /(\d+)\s*(?:pln|zł)[^.]*(?:parking|garaż|garage)/gi,
-  ];
-  for (const pattern of parkingPatterns) {
-    const match = pattern.exec(combined);
-    if (match) {
-      const amount = parseInt(match[1], 10);
-      if (amount >= 50 && amount <= 500) {
-        result.additionalFees.push({ type: 'parking', amount, label: 'Parking' });
-        break;
-      }
+  // Parking fee - must be explicitly about parking cost
+  const parkingMatch = combined.match(/(?:parking|garaż|garage|miejsce postojowe|miejsce garażowe)[^0-9]{0,25}?(\d{2,3})\s*(?:pln|zł)/i) ||
+                       combined.match(/(\d{2,3})\s*(?:pln|zł)[^.]{0,20}(?:parking|garaż|garage|postojow)/i);
+  if (parkingMatch) {
+    const amount = parseInt(parkingMatch[1], 10);
+    const matchIndex = combined.indexOf(parkingMatch[0]);
+    if (amount >= 100 && amount <= 500 && !isNumberInBadContext(combined, matchIndex, parkingMatch[0].length)) {
+      result.additionalFees.push({ type: 'parking', amount, label: 'Parking' });
     }
   }
 
@@ -321,42 +326,8 @@ function detectInconsistencies(summary, descriptionAnalysis) {
     });
   }
 
-  // ADDITIONAL FIXED FEES WARNING
-  if (descriptionAnalysis.additionalFees && descriptionAnalysis.additionalFees.length > 0) {
-    const feesList = descriptionAnalysis.additionalFees.map(f => f.label + ': ' + f.amount + ' PLN').join(', ');
-    const totalExtra = descriptionAnalysis.totalAdditionalFees;
-    
-    inconsistencies.push({
-      type: 'additional_fees',
-      severity: 'high',
-      message: 'Additional monthly fees in description: ' + feesList + ' (+' + totalExtra + ' PLN/month)',
-      fees: descriptionAnalysis.additionalFees,
-      totalExtra: totalExtra,
-    });
-  }
-
-  // METERED FEES WARNING (electricity/gas according to consumption)
-  if (descriptionAnalysis.hasMeteredFees) {
-    const types = descriptionAnalysis.meteredFeeTypes;
-    let meterMsg = 'Some utilities are metered (pay by consumption)';
-    
-    if (types.length > 0) {
-      const typeLabels = types.map(t => {
-        if (t === 'electricity') return 'electricity';
-        if (t === 'gas') return 'gas';
-        if (t === 'water') return 'water';
-        return t;
-      });
-      meterMsg = 'Metered utilities: ' + typeLabels.join(', ') + ' - paid separately based on usage';
-    }
-    
-    inconsistencies.push({
-      type: 'metered_utilities',
-      severity: 'medium',
-      message: meterMsg,
-      meteredTypes: types,
-    });
-  }
+  // Note: Additional fees and metered utilities are now shown in the Description Extras card
+  // We no longer show them as inconsistencies/warnings
 
   return inconsistencies;
 }
@@ -1188,13 +1159,16 @@ async function parseOtodom($, url, baseLocationText, rawHtml) {
                           ? descriptionAnalysis.hiddenDeposit 
                           : depositPLN;
   
-  const trueAdminPLN = descriptionAnalysis.hiddenUtilities 
-                        ? descriptionAnalysis.hiddenUtilities.avg 
-                        : adminPLN;
+  // CRITICAL: Never override admin from Otodom structured data
+  // Only use hiddenUtilities if Otodom has NO admin value at all
+  const trueAdminPLN = adminPLN || null;  // Always trust Otodom's admin value
   
-  // Include additional fees (internet, TV, parking) in total if detected
+  // Additional fees from description (internet, TV, parking) - informational only
   const additionalFeesTotal = descriptionAnalysis.totalAdditionalFees || 0;
-  const trueTotalPLN = rentPLN ? rentPLN + (trueAdminPLN || 0) + additionalFeesTotal : null;
+  
+  // Total = rent + admin (from Otodom) - DO NOT add description fees to total
+  // Description fees are informational only, shown separately
+  const trueTotalPLN = rentPLN ? rentPLN + (adminPLN || 0) : null;
 
   // Determine advertiser type
   let advertiserType = advertiserTypeRaw ? advertiserTypeRaw.toLowerCase() : null;
