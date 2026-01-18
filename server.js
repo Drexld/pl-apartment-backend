@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 3000;
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY || '';
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 
-// ---------- District Vibe Data (for Vibe Check + Expat Density) ----------
+// ---------- District Vibe Data (Neighborhood Intel + Expat Density) ----------
 
 const DISTRICT_VIBES = {
   // ===== WARSAW =====
@@ -211,7 +211,7 @@ function getDistrictVibe(address) {
     }
   }
   
-  // Try some common variations without Polish characters
+  // Try common variations without Polish characters
   const variations = {
     'srodmiescie': 'śródmieście',
     'mokotow': 'mokotów',
@@ -274,9 +274,9 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
 
   // DEPOSIT DETECTION
   const depositPatterns = [
-    /(?:deposit|kaucja|depozyt)[^0-9]*?(\d[\d\s,.]*)\s*(?:pln|zÅ‚|zloty)/gi,
-    /(?:refundable|zwrotna)[^0-9]*?(\d[\d\s,.]*)\s*(?:pln|zÅ‚)/gi,
-    /(\d[\d\s,.]*)\s*(?:pln|zÅ‚)[^.]*(?:deposit|kaucja|depozyt)/gi,
+    /(?:deposit|kaucja|depozyt)[^0-9]*?(\d[\d\s,.]*)\s*(?:pln|zł|zloty)/gi,
+    /(?:refundable|zwrotna)[^0-9]*?(\d[\d\s,.]*)\s*(?:pln|zł)/gi,
+    /(\d[\d\s,.]*)\s*(?:pln|zł)[^.]*(?:deposit|kaucja|depozyt)/gi,
   ];
 
   for (const pattern of depositPatterns) {
@@ -294,9 +294,9 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   // METERED UTILITIES DETECTION - ONLY extract if EXPLICITLY stated as "per person" utility costs
   // Be very strict - only match clear "utilities ~X PLN per person" patterns
   const utilityPatterns = [
-    /(?:media|utilities|opÅ‚aty licznikowe)[^0-9]{0,20}(?:ok\.?|okoÅ‚o|approx\.?|~|â‰ˆ)\s*(\d+)(?:\s*-\s*(\d+))?\s*(?:pln|zÅ‚)[^0-9]{0,20}(?:osob|person|miesiÄ™c|month)/gi,
-    /(?:for one person|dla jednej osoby|na 1 osobÄ™)[^0-9]{0,15}(?:ok\.?|okoÅ‚o|~|â‰ˆ)?\s*(\d+)\s*(?:pln|zÅ‚)/gi,
-    /(?:for two|dla dwÃ³ch|na 2 osob)[^0-9]{0,15}(?:ok\.?|okoÅ‚o|~|â‰ˆ)?\s*(\d+)\s*(?:pln|zÅ‚)/gi,
+    /(?:media|utilities|opłaty licznikowe)[^0-9]{0,20}(?:ok\.?|około|approx\.?|~|≈)\s*(\d+)(?:\s*-\s*(\d+))?\s*(?:pln|zł)[^0-9]{0,20}(?:osob|person|miesięc|month)/gi,
+    /(?:for one person|dla jednej osoby|na 1 osobę)[^0-9]{0,15}(?:ok\.?|około|~|≈)?\s*(\d+)\s*(?:pln|zł)/gi,
+    /(?:for two|dla dwóch|na 2 osob)[^0-9]{0,15}(?:ok\.?|około|~|≈)?\s*(\d+)\s*(?:pln|zł)/gi,
   ];
 
   let utilityMin = null;
@@ -329,9 +329,9 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
 
   // CONTRACT TERMS
   const contractPatterns = [
-    /(\d+)[\s-]*(?:month|miesiÄ…c|miesiÄ™c)[^.]*(?:contract|umowa|minimum)/gi,
-    /(?:minimum|min\.?|at least)[^0-9]*(\d+)[\s-]*(?:month|miesiÄ…c)/gi,
-    /(?:contract|umowa)[^.]*(\d+)[\s-]*(?:month|miesiÄ…c)/gi,
+    /(\d+)[\s-]*(?:month|miesiąc|miesięc)[^.]*(?:contract|umowa|minimum)/gi,
+    /(?:minimum|min\.?|at least)[^0-9]*(\d+)[\s-]*(?:month|miesiąc)/gi,
+    /(?:contract|umowa)[^.]*(\d+)[\s-]*(?:month|miesiąc)/gi,
   ];
 
   for (const pattern of contractPatterns) {
@@ -362,43 +362,43 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   // REGISTRATION (ZAMELDOWANIE)
   if (combined.includes('zameldowanie') || combined.includes('registration') || combined.includes('meldun')) {
     if (combined.includes('bez zameldowania') || combined.includes('no registration') || 
-        combined.includes('without registration') || combined.includes('nie ma moÅ¼liwoÅ›ci zameld')) {
+        combined.includes('without registration') || combined.includes('nie ma możliwości zameld')) {
       result.registrationAllowed = false;
       result.importantNotes.push('Registration (zameldowanie) NOT possible');
-    } else if (combined.includes('moÅ¼liwoÅ›Ä‡ zameld') || combined.includes('registration possible') ||
-               combined.includes('zameldowanie moÅ¼liwe')) {
+    } else if (combined.includes('możliwość zameld') || combined.includes('registration possible') ||
+               combined.includes('zameldowanie możliwe')) {
       result.registrationAllowed = true;
       result.importantNotes.push('Registration (zameldowanie) possible');
     }
   }
 
   // ADVERTISER TYPE DETECTION
-  if (combined.includes('biuro') || combined.includes('agency') || combined.includes('poÅ›rednik') ||
+  if (combined.includes('biuro') || combined.includes('agency') || combined.includes('pośrednik') ||
       combined.includes('agent') || combined.includes('prowizja') || combined.includes('commission')) {
     result.advertiserType = 'agency';
   } else if (combined.includes('prywat') || combined.includes('private') || combined.includes('owner') ||
-             combined.includes('wÅ‚aÅ›ciciel') || combined.includes('bez prowizji') || 
-             combined.includes('no commission') || combined.includes('bezpoÅ›rednio')) {
+             combined.includes('właściciel') || combined.includes('bez prowizji') || 
+             combined.includes('no commission') || combined.includes('bezpośrednio')) {
     result.advertiserType = 'private';
   }
 
   // PET POLICY
-  if (combined.includes('no pets') || combined.includes('bez zwierzÄ…t') || combined.includes('no animals')) {
+  if (combined.includes('no pets') || combined.includes('bez zwierząt') || combined.includes('no animals')) {
     result.importantNotes.push('No pets allowed');
-  } else if (combined.includes('pets welcome') || combined.includes('zwierzÄ™ta mile') || 
-             combined.includes('pets allowed') || combined.includes('akceptujemy zwierzÄ™ta')) {
+  } else if (combined.includes('pets welcome') || combined.includes('zwierzęta mile') || 
+             combined.includes('pets allowed') || combined.includes('akceptujemy zwierzęta')) {
     result.importantNotes.push('Pets allowed');
   }
 
   // SMOKING POLICY
-  if (combined.includes('no smoking') || combined.includes('niepalÄ…cych') || combined.includes('zakaz palenia')) {
+  if (combined.includes('no smoking') || combined.includes('niepalących') || combined.includes('zakaz palenia')) {
     result.importantNotes.push('Non-smokers only');
   }
 
   // STUDENTS
-  if (combined.includes('no students') || combined.includes('bez studentÃ³w')) {
+  if (combined.includes('no students') || combined.includes('bez studentów')) {
     result.importantNotes.push('Not renting to students');
-  } else if (combined.includes('students welcome') || combined.includes('dla studentÃ³w') ||
+  } else if (combined.includes('students welcome') || combined.includes('dla studentów') ||
              combined.includes('studenci mile widziani')) {
     result.importantNotes.push('Student-friendly');
   }
@@ -416,11 +416,11 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
     // Bad contexts to exclude
     const badPatterns = [
       /lini[ae]|line|bus|autobus|tramwaj|tram|metro/,
-      /\d+\s*m[Â²2\s]|metr|square/,  // Square meters
-      /floor|piÄ™tro|piÄ™tr/,
-      /km|kilom|odlegÅ‚|distance|od\s+/,
+      /\d+\s*m[²2\s]|metr|square/,  // Square meters
+      /floor|piętro|piętr/,
+      /km|kilom|odległ|distance|od\s+/,
       /rok|year|lat\s/,
-      /osÃ³b|person|people|mieszk/,  // Number of people
+      /osób|person|people|mieszk/,  // Number of people
       /numer|number|nr\s/,
       /id[:\s]/,
       /telefon|phone|tel[:\.\s]/,
@@ -430,8 +430,8 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   };
   
   // Internet fee - must be explicitly labeled
-  const internetMatch = combined.match(/internet[^0-9]{0,30}?(\d{2,3})\s*(?:pln|zÅ‚)/i) ||
-                        combined.match(/(\d{2,3})\s*(?:pln|zÅ‚)[^.]{0,20}internet/i);
+  const internetMatch = combined.match(/internet[^0-9]{0,30}?(\d{2,3})\s*(?:pln|zł)/i) ||
+                        combined.match(/(\d{2,3})\s*(?:pln|zł)[^.]{0,20}internet/i);
   if (internetMatch) {
     const amount = parseInt(internetMatch[1], 10);
     const matchIndex = combined.indexOf(internetMatch[0]);
@@ -441,8 +441,8 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   }
 
   // TV/Cable fee - must be explicitly labeled
-  const tvMatch = combined.match(/(?:tv|telewizj|cable|kablÃ³w)[^0-9]{0,20}?(\d{2,3})\s*(?:pln|zÅ‚)/i) ||
-                  combined.match(/(\d{2,3})\s*(?:pln|zÅ‚)[^.]{0,15}(?:tv|telewizj|cable)/i);
+  const tvMatch = combined.match(/(?:tv|telewizj|cable|kablów)[^0-9]{0,20}?(\d{2,3})\s*(?:pln|zł)/i) ||
+                  combined.match(/(\d{2,3})\s*(?:pln|zł)[^.]{0,15}(?:tv|telewizj|cable)/i);
   if (tvMatch && !result.additionalFees.some(f => f.type === 'internet')) {
     const amount = parseInt(tvMatch[1], 10);
     const matchIndex = combined.indexOf(tvMatch[0]);
@@ -451,8 +451,8 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
     }
   }
 
-  // Combined Internet + TV pattern (like "internet + TV â€“ 120 PLN")
-  const comboMatch = combined.match(/internet[^0-9]{0,10}(?:\+|and|oraz|i)[^0-9]{0,10}(?:tv|telewizj|upc|cable)[^0-9]{0,15}?(\d{2,3})\s*(?:pln|zÅ‚)/i);
+  // Combined Internet + TV pattern (like "internet + TV – 120 PLN")
+  const comboMatch = combined.match(/internet[^0-9]{0,10}(?:\+|and|oraz|i)[^0-9]{0,10}(?:tv|telewizj|upc|cable)[^0-9]{0,15}?(\d{2,3})\s*(?:pln|zł)/i);
   if (comboMatch) {
     const amount = parseInt(comboMatch[1], 10);
     if (amount >= 60 && amount <= 250) {
@@ -463,8 +463,8 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   }
 
   // Parking fee - must be explicitly about parking cost
-  const parkingMatch = combined.match(/(?:parking|garaÅ¼|garage|miejsce postojowe|miejsce garaÅ¼owe)[^0-9]{0,25}?(\d{2,3})\s*(?:pln|zÅ‚)/i) ||
-                       combined.match(/(\d{2,3})\s*(?:pln|zÅ‚)[^.]{0,20}(?:parking|garaÅ¼|garage|postojow)/i);
+  const parkingMatch = combined.match(/(?:parking|garaż|garage|miejsce postojowe|miejsce garażowe)[^0-9]{0,25}?(\d{2,3})\s*(?:pln|zł)/i) ||
+                       combined.match(/(\d{2,3})\s*(?:pln|zł)[^.]{0,20}(?:parking|garaż|garage|postojow)/i);
   if (parkingMatch) {
     const amount = parseInt(parkingMatch[1], 10);
     const matchIndex = combined.indexOf(parkingMatch[0]);
@@ -478,11 +478,11 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   result.meteredFeeTypes = [];
   
   const meteredPatterns = [
-    { pattern: /(?:meter|licznik|wedÅ‚ug zuÅ¼ycia|wg zuÅ¼ycia|according to consumption|based on consumption|faktyczne zuÅ¼ycie)/gi, type: 'general' },
-    { pattern: /(?:electricity|prÄ…d|elektryczn)[^.]*(?:meter|licznik|zuÅ¼yci|consumption)/gi, type: 'electricity' },
-    { pattern: /(?:gas|gaz)[^.]*(?:meter|licznik|zuÅ¼yci|consumption)/gi, type: 'gas' },
-    { pattern: /(?:water|woda|wod)[^.]*(?:meter|licznik|zuÅ¼yci|consumption)/gi, type: 'water' },
-    { pattern: /(?:meter fees|opÅ‚aty licznikowe|media wedÅ‚ug)/gi, type: 'general' },
+    { pattern: /(?:meter|licznik|według zużycia|wg zużycia|according to consumption|based on consumption|faktyczne zużycie)/gi, type: 'general' },
+    { pattern: /(?:electricity|prąd|elektryczn)[^.]*(?:meter|licznik|zużyci|consumption)/gi, type: 'electricity' },
+    { pattern: /(?:gas|gaz)[^.]*(?:meter|licznik|zużyci|consumption)/gi, type: 'gas' },
+    { pattern: /(?:water|woda|wod)[^.]*(?:meter|licznik|zużyci|consumption)/gi, type: 'water' },
+    { pattern: /(?:meter fees|opłaty licznikowe|media według)/gi, type: 'general' },
   ];
   
   for (const { pattern, type } of meteredPatterns) {
@@ -497,7 +497,7 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   // If we detected metered fees but didn't catch specific types, mark as general utilities
   if (result.hasMeteredFees && result.meteredFeeTypes.length === 0) {
     // Check for specific mentions even without meter keywords
-    if (combined.includes('elektryczn') || combined.includes('electricity') || combined.includes('prÄ…d')) {
+    if (combined.includes('elektryczn') || combined.includes('electricity') || combined.includes('prąd')) {
       result.meteredFeeTypes.push('electricity');
     }
     if (combined.includes('gaz') || combined.includes('gas')) {
@@ -666,16 +666,16 @@ function extractListingIntelligence($, html) {
     /"priceHistory"[:\s]*\[(.*?)\]/i,
     /"previousPrice"[:\s]*(\d+)/i,
     /cena poprzednia[:\s]*(\d[\d\s]*)/i,
-    /obniÅ¼ka[:\s]*(\d+)/i,
-    /price drop|obniÅ¼ono|reduced/i,
+    /obniżka[:\s]*(\d+)/i,
+    /price drop|obniżono|reduced/i,
   ];
 
   // Check for price drop indicators
-  if (/obniÅ¼ka|obniÅ¼ono|reduced|price drop|przecena/i.test(bodyText)) {
+  if (/obniżka|obniżono|reduced|price drop|przecena/i.test(bodyText)) {
     result.priceDropped = true;
     
     // Try to extract previous price
-    const prevPriceMatch = bodyText.match(/(?:poprzednia cena|previous price|byÅ‚o)[:\s]*(\d[\d\s]*)\s*(?:pln|zÅ‚)/i);
+    const prevPriceMatch = bodyText.match(/(?:poprzednia cena|previous price|było)[:\s]*(\d[\d\s]*)\s*(?:pln|zł)/i);
     if (prevPriceMatch) {
       result.previousPrice = parseInt(prevPriceMatch[1].replace(/\s/g, ''), 10);
     }
@@ -933,46 +933,46 @@ async function discoverNearbyPlaces(address) {
     // Organized by lifestyle needs for expats
     const categories = [
       // Daily Essentials
-      { type: 'supermarket', label: 'Supermarket', icon: 'ðŸ›’', radius: 800, category: 'essentials' },
-      { type: 'convenience_store', label: 'Convenience Store', icon: 'ðŸª', radius: 500, category: 'essentials' },
-      { type: 'pharmacy', label: 'Pharmacy', icon: 'ðŸ’Š', radius: 800, category: 'essentials' },
-      { type: 'bakery', label: 'Bakery', icon: 'ðŸ¥', radius: 600, category: 'essentials' },
+      { type: 'supermarket', label: 'Supermarket', icon: '🛒', radius: 800, category: 'essentials' },
+      { type: 'convenience_store', label: 'Convenience Store', icon: '🏪', radius: 500, category: 'essentials' },
+      { type: 'pharmacy', label: 'Pharmacy', icon: '💊', radius: 800, category: 'essentials' },
+      { type: 'bakery', label: 'Bakery', icon: '🥐', radius: 600, category: 'essentials' },
       
       // Transit & Mobility
-      { type: 'subway_station', label: 'Metro', icon: 'ðŸš‡', radius: 1000, category: 'transit' },
-      { type: 'transit_station', label: 'Tram/Bus Stop', icon: 'ðŸš‹', radius: 500, category: 'transit' },
-      { type: 'train_station', label: 'Train Station', icon: 'ðŸš†', radius: 2000, category: 'transit' },
+      { type: 'subway_station', label: 'Metro', icon: '🚇', radius: 1000, category: 'transit' },
+      { type: 'transit_station', label: 'Tram/Bus Stop', icon: '🚋', radius: 500, category: 'transit' },
+      { type: 'train_station', label: 'Train Station', icon: '🚆', radius: 2000, category: 'transit' },
       
       // Health & Fitness
-      { type: 'gym', label: 'Gym', icon: 'ðŸ‹ï¸', radius: 1000, category: 'health' },
-      { type: 'doctor', label: 'Doctor/Clinic', icon: 'ðŸ‘¨â€âš•ï¸', radius: 1500, category: 'health' },
-      { type: 'hospital', label: 'Hospital', icon: 'ðŸ¥', radius: 3000, category: 'health' },
-      { type: 'dentist', label: 'Dentist', icon: 'ðŸ¦·', radius: 1500, category: 'health' },
+      { type: 'gym', label: 'Gym', icon: '🏋️', radius: 1000, category: 'health' },
+      { type: 'doctor', label: 'Doctor/Clinic', icon: '👨‍⚕️', radius: 1500, category: 'health' },
+      { type: 'hospital', label: 'Hospital', icon: '🏥', radius: 3000, category: 'health' },
+      { type: 'dentist', label: 'Dentist', icon: '🦷', radius: 1500, category: 'health' },
       
       // Food & Dining
-      { type: 'restaurant', label: 'Restaurant', icon: 'ðŸ½ï¸', radius: 600, category: 'dining' },
-      { type: 'cafe', label: 'CafÃ©', icon: 'â˜•', radius: 500, category: 'dining' },
-      { type: 'bar', label: 'Bar/Pub', icon: 'ðŸº', radius: 800, category: 'nightlife' },
-      { type: 'night_club', label: 'Nightclub', icon: 'ðŸŽ‰', radius: 1500, category: 'nightlife' },
+      { type: 'restaurant', label: 'Restaurant', icon: '🍽️', radius: 600, category: 'dining' },
+      { type: 'cafe', label: 'Café', icon: '☕', radius: 500, category: 'dining' },
+      { type: 'bar', label: 'Bar/Pub', icon: '🍺', radius: 800, category: 'nightlife' },
+      { type: 'night_club', label: 'Nightclub', icon: '🎉', radius: 1500, category: 'nightlife' },
       
       // Recreation & Lifestyle
-      { type: 'park', label: 'Park', icon: 'ðŸŒ³', radius: 800, category: 'recreation' },
-      { type: 'shopping_mall', label: 'Shopping Mall', icon: 'ðŸ›ï¸', radius: 2000, category: 'shopping' },
-      { type: 'movie_theater', label: 'Cinema', icon: 'ðŸŽ¬', radius: 2000, category: 'entertainment' },
+      { type: 'park', label: 'Park', icon: '🌳', radius: 800, category: 'recreation' },
+      { type: 'shopping_mall', label: 'Shopping Mall', icon: '🛍️', radius: 2000, category: 'shopping' },
+      { type: 'movie_theater', label: 'Cinema', icon: '🎬', radius: 2000, category: 'entertainment' },
       
       // Family & Kids
-      { type: 'school', label: 'School', icon: 'ðŸ«', radius: 1000, category: 'family' },
-      { type: 'playground', label: 'Playground', icon: 'ðŸ›', radius: 600, category: 'family' },
+      { type: 'school', label: 'School', icon: '🏫', radius: 1000, category: 'family' },
+      { type: 'playground', label: 'Playground', icon: '🛝', radius: 600, category: 'family' },
       
       // Services
-      { type: 'bank', label: 'Bank', icon: 'ðŸ¦', radius: 1000, category: 'services' },
-      { type: 'atm', label: 'ATM', icon: 'ðŸ’³', radius: 500, category: 'services' },
-      { type: 'post_office', label: 'Post Office', icon: 'ðŸ“®', radius: 1500, category: 'services' },
-      { type: 'laundry', label: 'Laundry', icon: 'ðŸ§º', radius: 800, category: 'services' },
+      { type: 'bank', label: 'Bank', icon: '🏦', radius: 1000, category: 'services' },
+      { type: 'atm', label: 'ATM', icon: '💳', radius: 500, category: 'services' },
+      { type: 'post_office', label: 'Post Office', icon: '📮', radius: 1500, category: 'services' },
+      { type: 'laundry', label: 'Laundry', icon: '🧺', radius: 800, category: 'services' },
       
       // Pets
-      { type: 'veterinary_care', label: 'Vet', icon: 'ðŸ¾', radius: 2000, category: 'pets' },
-      { type: 'pet_store', label: 'Pet Store', icon: 'ðŸ•', radius: 1500, category: 'pets' },
+      { type: 'veterinary_care', label: 'Vet', icon: '🐾', radius: 2000, category: 'pets' },
+      { type: 'pet_store', label: 'Pet Store', icon: '🐕', radius: 1500, category: 'pets' },
     ];
 
     // Search for places in parallel (batch to avoid rate limits)
@@ -1206,22 +1206,22 @@ function generateNearbySummary(organized) {
 }
 
 const AMENITY_MAP = {
-  'taras': { icon: 'ðŸŒ¿', en: 'terrace' },
-  'balkon': { icon: 'ðŸŒ‡', en: 'balcony' },
-  'meble': { icon: 'ðŸ›‹ï¸', en: 'furniture' },
-  'pralka': { icon: 'ðŸ§º', en: 'washing machine' },
-  'zmywarka': { icon: 'ðŸ½ï¸', en: 'dishwasher' },
-  'lodÃ³wka': { icon: 'ðŸ§Š', en: 'refrigerator' },
-  'klimatyzacja': { icon: 'â„ï¸', en: 'air conditioning' },
-  'internet': { icon: 'ðŸŒ', en: 'internet' },
-  'teren zamkniÄ™ty': { icon: 'ðŸ”’', en: 'gated area' },
-  'garaÅ¼': { icon: 'ðŸš—', en: 'garage' },
-  'miejsce parkingowe': { icon: 'ðŸ…¿ï¸', en: 'parking space' },
-  'piwnica': { icon: 'ðŸ“¦', en: 'basement' },
-  'winda': { icon: 'ðŸ›—', en: 'elevator' },
-  'ogrÃ³d': { icon: 'ðŸŒ³', en: 'garden' },
-  'monitoring': { icon: 'ðŸ“¹', en: 'monitoring' },
-  'ochrona': { icon: 'ðŸ‘®', en: 'security' },
+  'taras': { icon: '🌿', en: 'terrace' },
+  'balkon': { icon: '🌇', en: 'balcony' },
+  'meble': { icon: '🛋️', en: 'furniture' },
+  'pralka': { icon: '🧺', en: 'washing machine' },
+  'zmywarka': { icon: '🍽️', en: 'dishwasher' },
+  'lodówka': { icon: '🧊', en: 'refrigerator' },
+  'klimatyzacja': { icon: '❄️', en: 'air conditioning' },
+  'internet': { icon: '🌐', en: 'internet' },
+  'teren zamknięty': { icon: '🔒', en: 'gated area' },
+  'garaż': { icon: '🚗', en: 'garage' },
+  'miejsce parkingowe': { icon: '🅿️', en: 'parking space' },
+  'piwnica': { icon: '📦', en: 'basement' },
+  'winda': { icon: '🛗', en: 'elevator' },
+  'ogród': { icon: '🌳', en: 'garden' },
+  'monitoring': { icon: '📹', en: 'monitoring' },
+  'ochrona': { icon: '👮', en: 'security' },
 };
 
 function decorateAmenity(amenity) {
@@ -1323,15 +1323,15 @@ async function parseOtodom($, url, baseLocationText, rawHtml) {
 
   const area = getProp('powierzchnia');
   const rooms = getProp('liczba pokoi') || product.numberOfRooms;
-  const availableFrom = getProp('dostÄ™pne od') || getProp('available from') || null;
+  const availableFrom = getProp('dostępne od') || getProp('available from') || null;
   const admin = getProp('czynsz');
   const deposit = getProp('kaucja');
-  const advertiserTypeRaw = getProp('typ ogÅ‚oszeniodawcy') || getProp('advertiser type') || null;
+  const advertiserTypeRaw = getProp('typ ogłoszeniodawcy') || getProp('advertiser type') || null;
 
   const infoAdditional = getProp('informacje dodatkowe') || '';
-  const equip = getProp('wyposaÅ¼enie') || '';
+  const equip = getProp('wyposażenie') || '';
   const media = getProp('media') || '';
-  const safety = getProp('bezpieczeÅ„stwo') || '';
+  const safety = getProp('bezpieczeństwo') || '';
   const security = getProp('zabezpieczenia') || '';
 
   const amenitiesRaw = (infoAdditional + ', ' + equip + ', ' + media + ', ' + safety + ', ' + security)
@@ -1473,7 +1473,7 @@ function generateInsights(summary) {
   const insights = [];
 
   if (summary.pricePerM2) {
-    insights.push('Estimated price per mÂ²: ' + summary.pricePerM2 + ' PLN (rent + admin, approx.).');
+    insights.push('Estimated price per m²: ' + summary.pricePerM2 + ' PLN (rent + admin, approx.).');
   }
 
   if (!summary.adminPLN) {
@@ -1491,7 +1491,7 @@ function generateInsights(summary) {
   return insights;
 }
 
-// ---------- Trust Score Breakdown (Visual checklist for transparency) ----------
+// ---------- Trust Score Breakdown ----------
 
 function generateTrustBreakdown(summary, descriptionAnalysis) {
   descriptionAnalysis = descriptionAnalysis || {};
@@ -1601,7 +1601,7 @@ function generateTrustBreakdown(summary, descriptionAnalysis) {
     });
   }
   
-  // 6. Reasonable Deposit (not excessive)
+  // 6. Reasonable Deposit
   totalCount++;
   const rent = summary.rentPLN;
   const deposit = summary.trueDepositPLN || summary.depositPLN;
@@ -1633,14 +1633,14 @@ function generateTrustBreakdown(summary, descriptionAnalysis) {
       category: 'pricing',
       label: 'Market-rate pricing',
       passed: true,
-      detail: ppm2 ? ppm2 + ' PLN/m2 is within normal range' : 'Cannot calculate',
+      detail: ppm2 ? ppm2 + ' PLN/m² is within normal range' : 'Cannot calculate',
     });
   } else {
     checks.push({
       category: 'pricing',
       label: 'Market-rate pricing',
       passed: false,
-      detail: ppm2 + ' PLN/m2 is ' + (ppm2 < 40 ? 'suspiciously low' : 'above market'),
+      detail: ppm2 + ' PLN/m² is ' + (ppm2 < 40 ? 'suspiciously low' : 'above market'),
     });
   }
   
@@ -1698,7 +1698,7 @@ function assessRisk(summary, descriptionAnalysis) {
     const inc = inconsistencies[i];
     if (inc.severity === 'high') {
       riskScore += 3;
-      flags.push('âš ï¸ ' + inc.message);
+      flags.push('⚠️ ' + inc.message);
     } else if (inc.severity === 'medium') {
       riskScore += 2;
       flags.push(inc.message);
@@ -1706,7 +1706,7 @@ function assessRisk(summary, descriptionAnalysis) {
   }
 
   if (rent && deposit && deposit > 2 * rent) {
-    flags.push('High deposit: more than 2Ã— monthly rent.');
+    flags.push('High deposit: more than 2× monthly rent.');
     riskScore += 2;
   }
 
@@ -1716,12 +1716,12 @@ function assessRisk(summary, descriptionAnalysis) {
   }
 
   if (ppm2 && ppm2 > 150) {
-    flags.push('Price per mÂ² seems high.');
+    flags.push('Price per m² seems high.');
     riskScore += 2;
   }
 
   if (ppm2 && ppm2 < 40) {
-    flags.push('Price per mÂ² seems very low â€” double-check for hidden costs.');
+    flags.push('Price per m² seems very low — double-check for hidden costs.');
     riskScore += 2;
   }
 
