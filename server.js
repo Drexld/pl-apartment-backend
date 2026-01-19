@@ -201,7 +201,6 @@ function getDistrictVibe(address) {
   
   const addressLower = address.toLowerCase();
   
-  // Try to match district names
   for (const [districtKey, vibeData] of Object.entries(DISTRICT_VIBES)) {
     if (addressLower.includes(districtKey)) {
       return {
@@ -211,7 +210,6 @@ function getDistrictVibe(address) {
     }
   }
   
-  // Try common variations without Polish characters
   const variations = {
     'srodmiescie': 'śródmieście',
     'mokotow': 'mokotów',
@@ -1409,7 +1407,7 @@ async function parseOtodom($, url, baseLocationText, rawHtml) {
     nearbyPlaces = await discoverNearbyPlaces(location + ', Poland');
   }
 
-  // Get district vibe information (Neighborhood Intel)
+  // Get district vibe information
   const districtVibe = getDistrictVibe(location);
 
   const summary = {
@@ -1500,175 +1498,92 @@ function generateTrustBreakdown(summary, descriptionAnalysis) {
   let passedCount = 0;
   let totalCount = 0;
   
-  // 1. Price Transparency
   totalCount++;
   const hasClearPricing = summary.rentPLN && summary.adminPLN;
-  if (hasClearPricing) {
-    passedCount++;
-    checks.push({
-      category: 'pricing',
-      label: 'Clear pricing',
-      passed: true,
-      detail: 'Rent and admin fees clearly stated',
-    });
-  } else {
-    checks.push({
-      category: 'pricing',
-      label: 'Clear pricing',
-      passed: false,
-      detail: summary.rentPLN ? 'Admin/utilities not specified' : 'Price information incomplete',
-    });
-  }
+  checks.push({
+    category: 'pricing',
+    label: 'Clear pricing',
+    passed: hasClearPricing,
+    detail: hasClearPricing ? 'Rent and admin fees clearly stated' : (summary.rentPLN ? 'Admin/utilities not specified' : 'Price information incomplete'),
+  });
+  if (hasClearPricing) passedCount++;
   
-  // 2. Deposit Listed
   totalCount++;
   const hasDeposit = summary.depositPLN || descriptionAnalysis.hiddenDeposit;
-  if (hasDeposit) {
-    passedCount++;
-    checks.push({
-      category: 'pricing',
-      label: 'Deposit specified',
-      passed: true,
-      detail: 'Deposit amount is known',
-    });
-  } else {
-    checks.push({
-      category: 'pricing',
-      label: 'Deposit specified',
-      passed: false,
-      detail: 'No deposit information found',
-    });
-  }
+  checks.push({
+    category: 'pricing',
+    label: 'Deposit specified',
+    passed: !!hasDeposit,
+    detail: hasDeposit ? 'Deposit amount is known' : 'No deposit information found',
+  });
+  if (hasDeposit) passedCount++;
   
-  // 3. No Price Contradictions
   totalCount++;
   const inconsistencies = descriptionAnalysis.inconsistencies || [];
   const hasPriceContradiction = inconsistencies.some(function(i) { return i.type === 'deposit_mismatch'; });
-  if (!hasPriceContradiction) {
-    passedCount++;
-    checks.push({
-      category: 'consistency',
-      label: 'Prices match',
-      passed: true,
-      detail: 'Listed prices match description',
-    });
-  } else {
-    checks.push({
-      category: 'consistency',
-      label: 'Prices match',
-      passed: false,
-      detail: 'Deposit mismatch between listing and description',
-    });
-  }
+  checks.push({
+    category: 'consistency',
+    label: 'Prices match',
+    passed: !hasPriceContradiction,
+    detail: !hasPriceContradiction ? 'Listed prices match description' : 'Deposit mismatch between listing and description',
+  });
+  if (!hasPriceContradiction) passedCount++;
   
-  // 4. Description Quality
   totalCount++;
   const descLength = (summary.descriptionEN || '').length;
   const hasGoodDescription = descLength >= 200;
-  if (hasGoodDescription) {
-    passedCount++;
-    checks.push({
-      category: 'detail',
-      label: 'Detailed description',
-      passed: true,
-      detail: 'Comprehensive listing description',
-    });
-  } else {
-    checks.push({
-      category: 'detail',
-      label: 'Detailed description',
-      passed: false,
-      detail: 'Description is short or vague',
-    });
-  }
+  checks.push({
+    category: 'detail',
+    label: 'Detailed description',
+    passed: hasGoodDescription,
+    detail: hasGoodDescription ? 'Comprehensive listing description' : 'Description is short or vague',
+  });
+  if (hasGoodDescription) passedCount++;
   
-  // 5. Availability Date
   totalCount++;
-  if (summary.availableFrom) {
-    passedCount++;
-    checks.push({
-      category: 'detail',
-      label: 'Availability date',
-      passed: true,
-      detail: 'Move-in date specified',
-    });
-  } else {
-    checks.push({
-      category: 'detail',
-      label: 'Availability date',
-      passed: false,
-      detail: 'No availability date given',
-    });
-  }
+  checks.push({
+    category: 'detail',
+    label: 'Availability date',
+    passed: !!summary.availableFrom,
+    detail: summary.availableFrom ? 'Move-in date specified' : 'No availability date given',
+  });
+  if (summary.availableFrom) passedCount++;
   
-  // 6. Reasonable Deposit
   totalCount++;
   const rent = summary.rentPLN;
   const deposit = summary.trueDepositPLN || summary.depositPLN;
   const depositReasonable = !deposit || !rent || deposit <= (2 * rent);
-  if (depositReasonable) {
-    passedCount++;
-    checks.push({
-      category: 'pricing',
-      label: 'Reasonable deposit',
-      passed: true,
-      detail: deposit ? 'Deposit within normal range' : 'N/A',
-    });
-  } else {
-    checks.push({
-      category: 'pricing',
-      label: 'Reasonable deposit',
-      passed: false,
-      detail: 'Deposit exceeds 2x monthly rent',
-    });
-  }
+  checks.push({
+    category: 'pricing',
+    label: 'Reasonable deposit',
+    passed: depositReasonable,
+    detail: depositReasonable ? (deposit ? 'Deposit within normal range' : 'N/A') : 'Deposit exceeds 2x monthly rent',
+  });
+  if (depositReasonable) passedCount++;
   
-  // 7. Price per m² reasonable
   totalCount++;
   const ppm2 = summary.pricePerM2;
   const ppm2Reasonable = !ppm2 || (ppm2 >= 40 && ppm2 <= 150);
-  if (ppm2Reasonable) {
-    passedCount++;
-    checks.push({
-      category: 'pricing',
-      label: 'Market-rate pricing',
-      passed: true,
-      detail: ppm2 ? ppm2 + ' PLN/m² is within normal range' : 'Cannot calculate',
-    });
-  } else {
-    checks.push({
-      category: 'pricing',
-      label: 'Market-rate pricing',
-      passed: false,
-      detail: ppm2 + ' PLN/m² is ' + (ppm2 < 40 ? 'suspiciously low' : 'above market'),
-    });
-  }
+  checks.push({
+    category: 'pricing',
+    label: 'Market-rate pricing',
+    passed: ppm2Reasonable,
+    detail: ppm2Reasonable ? (ppm2 ? ppm2 + ' PLN/m² is within normal range' : 'Cannot calculate') : (ppm2 + ' PLN/m² is ' + (ppm2 < 40 ? 'suspiciously low' : 'above market')),
+  });
+  if (ppm2Reasonable) passedCount++;
   
-  // 8. Registration allowed (if mentioned)
   if (descriptionAnalysis.registrationAllowed !== null && descriptionAnalysis.registrationAllowed !== undefined) {
     totalCount++;
-    if (descriptionAnalysis.registrationAllowed === true) {
-      passedCount++;
-      checks.push({
-        category: 'legal',
-        label: 'Registration allowed',
-        passed: true,
-        detail: 'Zameldowanie possible',
-      });
-    } else {
-      checks.push({
-        category: 'legal',
-        label: 'Registration allowed',
-        passed: false,
-        detail: 'No zameldowanie - may affect visa',
-      });
-    }
+    checks.push({
+      category: 'legal',
+      label: 'Registration allowed',
+      passed: descriptionAnalysis.registrationAllowed === true,
+      detail: descriptionAnalysis.registrationAllowed ? 'Zameldowanie possible' : 'No zameldowanie - may affect visa',
+    });
+    if (descriptionAnalysis.registrationAllowed) passedCount++;
   }
   
-  // Calculate overall trust percentage
   const trustPercentage = Math.round((passedCount / totalCount) * 100);
-  
-  // Determine trust level
   let trustLevel = 'high';
   if (trustPercentage < 50) trustLevel = 'low';
   else if (trustPercentage < 75) trustLevel = 'medium';
