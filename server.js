@@ -21,218 +21,50 @@ const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 
 const DISTRICT_VIBES = {
   // ===== WARSAW =====
-  'śródmieście': {
-    city: 'Warsaw',
-    vibe: 'The beating heart - business by day, cocktails by night. Expect noise, tourists, and premium everything.',
-    expatDensity: 'high',
-    expatNote: 'Very English-friendly. International crowd, easy to navigate without Polish.',
-    priceTier: 'premium',
-  },
-  'mokotów': {
-    city: 'Warsaw',
-    vibe: 'The reliable choice - good schools, parks, cafes. Safe but not exciting. Where professionals settle down.',
-    expatDensity: 'high',
-    expatNote: 'Popular with expat families. Many English-speaking services and international schools nearby.',
-    priceTier: 'high',
-  },
-  'wilanów': {
-    city: 'Warsaw',
-    vibe: 'New-build paradise with palace views. Quiet, spacious, but you\'ll need a car. Suburban feel in the city.',
-    expatDensity: 'high',
-    expatNote: 'Very popular with expat families. American & British schools nearby. English widely spoken.',
-    priceTier: 'premium',
-  },
-  'wola': {
-    city: 'Warsaw',
-    vibe: 'The hot one - startups, new towers, craft beer. Gentrifying fast. Some blocks fancy, others still gritty.',
-    expatDensity: 'medium',
-    expatNote: 'Growing expat scene, especially young professionals. Mix of English-friendly and local spots.',
-    priceTier: 'high',
-  },
-  'praga północ': {
-    city: 'Warsaw',
-    vibe: 'The artsy rebel - street art, dive bars, authentic grit. Gentrifying but keeping it real. Some blocks sketchy after dark.',
-    expatDensity: 'low',
-    expatNote: 'Adventurous expats only. Bring Google Translate. Authentic but requires Polish for daily life.',
-    priceTier: 'budget',
-  },
-  'praga południe': {
-    city: 'Warsaw',
-    vibe: 'Praga\'s calmer sibling - parks, families, improving fast. Better connected than you\'d think.',
-    expatDensity: 'low',
-    expatNote: 'Few expats, very local feel. Good value but Polish language helpful.',
-    priceTier: 'budget',
-  },
-  'żoliborz': {
-    city: 'Warsaw',
-    vibe: 'The intellectual\'s choice - tree-lined streets, professors, and quiet dignity. Old Warsaw charm.',
-    expatDensity: 'medium',
-    expatNote: 'Some expats, especially academics. Charming but more Polish-speaking than central areas.',
-    priceTier: 'high',
-  },
-  'ursynów': {
-    city: 'Warsaw',
-    vibe: 'Student central meets family suburbia. Metro-connected but feels like a satellite town. Practical, not pretty.',
-    expatDensity: 'low',
-    expatNote: 'University area with some international students. Basic English in shops, but mostly Polish.',
-    priceTier: 'mid',
-  },
-  'bielany': {
-    city: 'Warsaw',
-    vibe: 'Green and peaceful - Kampinos forest nearby, university vibes. Good for nature lovers who still want metro.',
-    expatDensity: 'low',
-    expatNote: 'Few expats. Very local, Polish needed for most interactions.',
-    priceTier: 'mid',
-  },
-  'bemowo': {
-    city: 'Warsaw',
-    vibe: 'New developments on old airfield. Good value, good transport, zero personality. Pure functionality.',
-    expatDensity: 'low',
-    expatNote: 'Rare expats. Very local, Polish essential.',
-    priceTier: 'mid',
-  },
-  'ochota': {
-    city: 'Warsaw',
-    vibe: 'Central without the price tag - student area near universities. Good transport, mixed architecture.',
-    expatDensity: 'medium',
-    expatNote: 'Some international students. Basic English in main areas.',
-    priceTier: 'mid',
-  },
-  'targówek': {
-    city: 'Warsaw',
-    vibe: 'Working-class roots, slowly changing. Good metro now. Real Warsaw, no Instagram filter.',
-    expatDensity: 'low',
-    expatNote: 'Very few expats. Polish language essential. Authentic local experience.',
-    priceTier: 'budget',
-  },
-  'białołęka': {
-    city: 'Warsaw',
-    vibe: 'Edge of the city - new estates, young families, traffic jams. Affordable but you pay in commute time.',
-    expatDensity: 'low',
-    expatNote: 'Almost no expats. Very local, car helpful, Polish essential.',
-    priceTier: 'budget',
-  },
+  'śródmieście': { city: 'Warsaw', vibe: 'The beating heart - business by day, cocktails by night. Expect noise, tourists, and premium everything.', expatDensity: 'high', expatNote: 'Very English-friendly. International crowd, easy to navigate without Polish.', priceTier: 'premium' },
+  'mokotów': { city: 'Warsaw', vibe: 'The reliable choice - good schools, parks, cafes. Safe but not exciting. Where professionals settle down.', expatDensity: 'high', expatNote: 'Popular with expat families. Many English-speaking services and international schools nearby.', priceTier: 'high' },
+  'wilanów': { city: 'Warsaw', vibe: 'New-build paradise with palace views. Quiet, spacious, but you\'ll need a car. Suburban feel in the city.', expatDensity: 'high', expatNote: 'Very popular with expat families. American & British schools nearby. English widely spoken.', priceTier: 'premium' },
+  'wola': { city: 'Warsaw', vibe: 'The hot one - startups, new towers, craft beer. Gentrifying fast. Some blocks fancy, others still gritty.', expatDensity: 'medium', expatNote: 'Growing expat scene, especially young professionals. Mix of English-friendly and local spots.', priceTier: 'high' },
+  'praga północ': { city: 'Warsaw', vibe: 'The artsy rebel - street art, dive bars, authentic grit. Gentrifying but keeping it real. Some blocks sketchy after dark.', expatDensity: 'low', expatNote: 'Adventurous expats only. Bring Google Translate. Authentic but requires Polish for daily life.', priceTier: 'budget' },
+  'praga południe': { city: 'Warsaw', vibe: 'Praga\'s calmer sibling - parks, families, improving fast. Better connected than you\'d think.', expatDensity: 'low', expatNote: 'Few expats, very local feel. Good value but Polish language helpful.', priceTier: 'budget' },
+  'żoliborz': { city: 'Warsaw', vibe: 'The intellectual\'s choice - tree-lined streets, professors, and quiet dignity. Old Warsaw charm.', expatDensity: 'medium', expatNote: 'Some expats, especially academics. Charming but more Polish-speaking than central areas.', priceTier: 'high' },
+  'ursynów': { city: 'Warsaw', vibe: 'Student central meets family suburbia. Metro-connected but feels like a satellite town. Practical, not pretty.', expatDensity: 'low', expatNote: 'University area with some international students. Basic English in shops, but mostly Polish.', priceTier: 'mid' },
+  'bielany': { city: 'Warsaw', vibe: 'Green and peaceful - Kampinos forest nearby, university vibes. Good for nature lovers who still want metro.', expatDensity: 'low', expatNote: 'Few expats. Very local, Polish needed for most interactions.', priceTier: 'mid' },
+  'bemowo': { city: 'Warsaw', vibe: 'New developments on old airfield. Good value, good transport, zero personality. Pure functionality.', expatDensity: 'low', expatNote: 'Rare expats. Very local, Polish essential.', priceTier: 'mid' },
+  'ochota': { city: 'Warsaw', vibe: 'Central without the price tag - student area near universities. Good transport, mixed architecture.', expatDensity: 'medium', expatNote: 'Some international students. Basic English in main areas.', priceTier: 'mid' },
+  'targówek': { city: 'Warsaw', vibe: 'Working-class roots, slowly changing. Good metro now. Real Warsaw, no Instagram filter.', expatDensity: 'low', expatNote: 'Very few expats. Polish language essential. Authentic local experience.', priceTier: 'budget' },
+  'białołęka': { city: 'Warsaw', vibe: 'Edge of the city - new estates, young families, traffic jams. Affordable but you pay in commute time.', expatDensity: 'low', expatNote: 'Almost no expats. Very local, car helpful, Polish essential.', priceTier: 'budget' },
   // ===== KRAKOW =====
-  'stare miasto': {
-    city: 'Krakow',
-    vibe: 'Postcard perfect but tourist chaos. Beautiful but noisy. Living in a museum has its drawbacks.',
-    expatDensity: 'high',
-    expatNote: 'Very English-friendly but touristy. Easy for newcomers, hard for peace and quiet.',
-    priceTier: 'premium',
-  },
-  'kazimierz': {
-    city: 'Krakow',
-    vibe: 'The cool kid - Jewish heritage, hipster cafes, weekend crowds. Artsy, expensive, Instagram-ready.',
-    expatDensity: 'high',
-    expatNote: 'Expat hotspot. English everywhere. International vibe but premium prices.',
-    priceTier: 'premium',
-  },
-  'podgórze': {
-    city: 'Krakow',
-    vibe: 'Kazimierz overflow - still cool, slightly cheaper. Zabłocie tech hub nearby brings young professionals.',
-    expatDensity: 'medium',
-    expatNote: 'Growing expat scene. Good English in new developments, more local elsewhere.',
-    priceTier: 'high',
-  },
-  'krowodrza': {
-    city: 'Krakow',
-    vibe: 'Green and university-adjacent. Jordan Park, student vibes, real neighborhoods. Good balance.',
-    expatDensity: 'medium',
-    expatNote: 'Mixed - some expats near university. Decent English, local feel.',
-    priceTier: 'mid',
-  },
-  'nowa huta': {
-    city: 'Krakow',
-    vibe: 'Socialist realism architecture tour. Fascinating history, cheap rent, looong commute to center.',
-    expatDensity: 'low',
-    expatNote: 'Adventure territory. Very local, Polish essential, but incredible value.',
-    priceTier: 'budget',
-  },
+  'stare miasto': { city: 'Krakow', vibe: 'Postcard perfect but tourist chaos. Beautiful but noisy. Living in a museum has its drawbacks.', expatDensity: 'high', expatNote: 'Very English-friendly but touristy. Easy for newcomers, hard for peace and quiet.', priceTier: 'premium' },
+  'kazimierz': { city: 'Krakow', vibe: 'The cool kid - Jewish heritage, hipster cafes, weekend crowds. Artsy, expensive, Instagram-ready.', expatDensity: 'high', expatNote: 'Expat hotspot. English everywhere. International vibe but premium prices.', priceTier: 'premium' },
+  'podgórze': { city: 'Krakow', vibe: 'Kazimierz overflow - still cool, slightly cheaper. Zabłocie tech hub nearby brings young professionals.', expatDensity: 'medium', expatNote: 'Growing expat scene. Good English in new developments, more local elsewhere.', priceTier: 'high' },
+  'krowodrza': { city: 'Krakow', vibe: 'Green and university-adjacent. Jordan Park, student vibes, real neighborhoods. Good balance.', expatDensity: 'medium', expatNote: 'Mixed - some expats near university. Decent English, local feel.', priceTier: 'mid' },
+  'nowa huta': { city: 'Krakow', vibe: 'Socialist realism architecture tour. Fascinating history, cheap rent, looong commute to center.', expatDensity: 'low', expatNote: 'Adventure territory. Very local, Polish essential, but incredible value.', priceTier: 'budget' },
   // ===== WROCŁAW =====
-  'krzyki': {
-    city: 'Wroclaw',
-    vibe: 'Big and varied - from fancy villas to communist blocks. Check the exact street carefully.',
-    expatDensity: 'medium',
-    expatNote: 'Mixed expat presence. Depends heavily on exact location.',
-    priceTier: 'mid',
-  },
-  'fabryczna': {
-    city: 'Wroclaw',
-    vibe: 'West side story - new developments, business parks, improving fast.',
-    expatDensity: 'medium',
-    expatNote: 'Tech companies bringing expats. New areas more English-friendly.',
-    priceTier: 'mid',
-  },
+  'krzyki': { city: 'Wroclaw', vibe: 'Big and varied - from fancy villas to communist blocks. Check the exact street carefully.', expatDensity: 'medium', expatNote: 'Mixed expat presence. Depends heavily on exact location.', priceTier: 'mid' },
+  'fabryczna': { city: 'Wroclaw', vibe: 'West side story - new developments, business parks, improving fast.', expatDensity: 'medium', expatNote: 'Tech companies bringing expats. New areas more English-friendly.', priceTier: 'mid' },
   // ===== GDAŃSK =====
-  'wrzeszcz': {
-    city: 'Gdansk',
-    vibe: 'The real Gdańsk - university, cafes, real neighborhoods. Best balance of price and life.',
-    expatDensity: 'medium',
-    expatNote: 'Growing expat scene. Good mix of local and international.',
-    priceTier: 'mid',
-  },
-  'oliwa': {
-    city: 'Gdansk',
-    vibe: 'Park district - cathedral, zoo, green space. Quiet, established, further from action.',
-    expatDensity: 'medium',
-    expatNote: 'Some expat families. Quieter, more residential English.',
-    priceTier: 'high',
-  },
+  'wrzeszcz': { city: 'Gdansk', vibe: 'The real Gdańsk - university, cafes, real neighborhoods. Best balance of price and life.', expatDensity: 'medium', expatNote: 'Growing expat scene. Good mix of local and international.', priceTier: 'mid' },
+  'oliwa': { city: 'Gdansk', vibe: 'Park district - cathedral, zoo, green space. Quiet, established, further from action.', expatDensity: 'medium', expatNote: 'Some expat families. Quieter, more residential English.', priceTier: 'high' },
   // ===== POZNAŃ =====
-  'jeżyce': {
-    city: 'Poznan',
-    vibe: 'The Brooklyn of Poznań - hipster cafes, vintage shops, young creative crowd.',
-    expatDensity: 'medium',
-    expatNote: 'Trendy expat spot. Good English in cafes.',
-    priceTier: 'high',
-  },
-  'grunwald': {
-    city: 'Poznan',
-    vibe: 'Massive and varied - trade fair area, mix of old and new. Check exact location.',
-    expatDensity: 'medium',
-    expatNote: 'Business expats during fairs. Mixed otherwise.',
-    priceTier: 'mid',
-  },
+  'jeżyce': { city: 'Poznan', vibe: 'The Brooklyn of Poznań - hipster cafes, vintage shops, young creative crowd.', expatDensity: 'medium', expatNote: 'Trendy expat spot. Good English in cafes.', priceTier: 'high' },
+  'grunwald': { city: 'Poznan', vibe: 'Massive and varied - trade fair area, mix of old and new. Check exact location.', expatDensity: 'medium', expatNote: 'Business expats during fairs. Mixed otherwise.', priceTier: 'mid' },
 };
 
-// Helper function to find district info from address
 function getDistrictVibe(address) {
   if (!address) return null;
-  
   const addressLower = address.toLowerCase();
-  
   for (const [districtKey, vibeData] of Object.entries(DISTRICT_VIBES)) {
     if (addressLower.includes(districtKey)) {
-      return {
-        district: districtKey.charAt(0).toUpperCase() + districtKey.slice(1),
-        ...vibeData,
-      };
+      return { district: districtKey.charAt(0).toUpperCase() + districtKey.slice(1), ...vibeData };
     }
   }
-  
-  const variations = {
-    'srodmiescie': 'śródmieście',
-    'mokotow': 'mokotów',
-    'wilanow': 'wilanów',
-    'zoliborz': 'żoliborz',
-    'ursynow': 'ursynów',
-    'bialoleka': 'białołęka',
-    'targowek': 'targówek',
-    'praga polnoc': 'praga północ',
-    'praga poludnie': 'praga południe',
-    'jezyce': 'jeżyce',
-  };
-  
+  const variations = { 'srodmiescie': 'śródmieście', 'mokotow': 'mokotów', 'wilanow': 'wilanów', 'zoliborz': 'żoliborz', 'ursynow': 'ursynów', 'bialoleka': 'białołęka', 'targowek': 'targówek', 'praga polnoc': 'praga północ', 'praga poludnie': 'praga południe', 'jezyce': 'jeżyce' };
   for (const [variation, proper] of Object.entries(variations)) {
     if (addressLower.includes(variation) && DISTRICT_VIBES[proper]) {
-      const vibeData = DISTRICT_VIBES[proper];
-      return {
-        district: proper.charAt(0).toUpperCase() + proper.slice(1),
-        ...vibeData,
-      };
+      return { district: proper.charAt(0).toUpperCase() + proper.slice(1), ...DISTRICT_VIBES[proper] };
     }
   }
-  
   return null;
 }
 
@@ -1493,93 +1325,52 @@ function generateInsights(summary) {
 
 function generateTrustBreakdown(summary, descriptionAnalysis) {
   descriptionAnalysis = descriptionAnalysis || {};
-  
   const checks = [];
   let passedCount = 0;
   let totalCount = 0;
   
   totalCount++;
   const hasClearPricing = summary.rentPLN && summary.adminPLN;
-  checks.push({
-    category: 'pricing',
-    label: 'Clear pricing',
-    passed: hasClearPricing,
-    detail: hasClearPricing ? 'Rent and admin fees clearly stated' : (summary.rentPLN ? 'Admin/utilities not specified' : 'Price information incomplete'),
-  });
+  checks.push({ category: 'pricing', label: 'Clear pricing', passed: hasClearPricing, detail: hasClearPricing ? 'Rent and admin fees clearly stated' : (summary.rentPLN ? 'Admin/utilities not specified' : 'Price information incomplete') });
   if (hasClearPricing) passedCount++;
   
   totalCount++;
   const hasDeposit = summary.depositPLN || descriptionAnalysis.hiddenDeposit;
-  checks.push({
-    category: 'pricing',
-    label: 'Deposit specified',
-    passed: !!hasDeposit,
-    detail: hasDeposit ? 'Deposit amount is known' : 'No deposit information found',
-  });
+  checks.push({ category: 'pricing', label: 'Deposit specified', passed: !!hasDeposit, detail: hasDeposit ? 'Deposit amount is known' : 'No deposit information found' });
   if (hasDeposit) passedCount++;
   
   totalCount++;
   const inconsistencies = descriptionAnalysis.inconsistencies || [];
   const hasPriceContradiction = inconsistencies.some(function(i) { return i.type === 'deposit_mismatch'; });
-  checks.push({
-    category: 'consistency',
-    label: 'Prices match',
-    passed: !hasPriceContradiction,
-    detail: !hasPriceContradiction ? 'Listed prices match description' : 'Deposit mismatch between listing and description',
-  });
+  checks.push({ category: 'consistency', label: 'Prices match', passed: !hasPriceContradiction, detail: !hasPriceContradiction ? 'Listed prices match description' : 'Deposit mismatch between listing and description' });
   if (!hasPriceContradiction) passedCount++;
   
   totalCount++;
   const descLength = (summary.descriptionEN || '').length;
   const hasGoodDescription = descLength >= 200;
-  checks.push({
-    category: 'detail',
-    label: 'Detailed description',
-    passed: hasGoodDescription,
-    detail: hasGoodDescription ? 'Comprehensive listing description' : 'Description is short or vague',
-  });
+  checks.push({ category: 'detail', label: 'Detailed description', passed: hasGoodDescription, detail: hasGoodDescription ? 'Comprehensive listing description' : 'Description is short or vague' });
   if (hasGoodDescription) passedCount++;
   
   totalCount++;
-  checks.push({
-    category: 'detail',
-    label: 'Availability date',
-    passed: !!summary.availableFrom,
-    detail: summary.availableFrom ? 'Move-in date specified' : 'No availability date given',
-  });
+  checks.push({ category: 'detail', label: 'Availability date', passed: !!summary.availableFrom, detail: summary.availableFrom ? 'Move-in date specified' : 'No availability date given' });
   if (summary.availableFrom) passedCount++;
   
   totalCount++;
   const rent = summary.rentPLN;
   const deposit = summary.trueDepositPLN || summary.depositPLN;
   const depositReasonable = !deposit || !rent || deposit <= (2 * rent);
-  checks.push({
-    category: 'pricing',
-    label: 'Reasonable deposit',
-    passed: depositReasonable,
-    detail: depositReasonable ? (deposit ? 'Deposit within normal range' : 'N/A') : 'Deposit exceeds 2x monthly rent',
-  });
+  checks.push({ category: 'pricing', label: 'Reasonable deposit', passed: depositReasonable, detail: depositReasonable ? (deposit ? 'Deposit within normal range' : 'N/A') : 'Deposit exceeds 2x monthly rent' });
   if (depositReasonable) passedCount++;
   
   totalCount++;
   const ppm2 = summary.pricePerM2;
   const ppm2Reasonable = !ppm2 || (ppm2 >= 40 && ppm2 <= 150);
-  checks.push({
-    category: 'pricing',
-    label: 'Market-rate pricing',
-    passed: ppm2Reasonable,
-    detail: ppm2Reasonable ? (ppm2 ? ppm2 + ' PLN/m² is within normal range' : 'Cannot calculate') : (ppm2 + ' PLN/m² is ' + (ppm2 < 40 ? 'suspiciously low' : 'above market')),
-  });
+  checks.push({ category: 'pricing', label: 'Market-rate pricing', passed: ppm2Reasonable, detail: ppm2Reasonable ? (ppm2 ? ppm2 + ' PLN/m² is within normal range' : 'Cannot calculate') : (ppm2 + ' PLN/m² is ' + (ppm2 < 40 ? 'suspiciously low' : 'above market')) });
   if (ppm2Reasonable) passedCount++;
   
   if (descriptionAnalysis.registrationAllowed !== null && descriptionAnalysis.registrationAllowed !== undefined) {
     totalCount++;
-    checks.push({
-      category: 'legal',
-      label: 'Registration allowed',
-      passed: descriptionAnalysis.registrationAllowed === true,
-      detail: descriptionAnalysis.registrationAllowed ? 'Zameldowanie possible' : 'No zameldowanie - may affect visa',
-    });
+    checks.push({ category: 'legal', label: 'Registration allowed', passed: descriptionAnalysis.registrationAllowed === true, detail: descriptionAnalysis.registrationAllowed ? 'Zameldowanie possible' : 'No zameldowanie - may affect visa' });
     if (descriptionAnalysis.registrationAllowed) passedCount++;
   }
   
@@ -1588,13 +1379,7 @@ function generateTrustBreakdown(summary, descriptionAnalysis) {
   if (trustPercentage < 50) trustLevel = 'low';
   else if (trustPercentage < 75) trustLevel = 'medium';
   
-  return {
-    checks: checks,
-    passed: passedCount,
-    total: totalCount,
-    percentage: trustPercentage,
-    level: trustLevel,
-  };
+  return { checks: checks, passed: passedCount, total: totalCount, percentage: trustPercentage, level: trustLevel };
 }
 
 function assessRisk(summary, descriptionAnalysis) {
