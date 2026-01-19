@@ -1365,7 +1365,7 @@ function generateTrustBreakdown(summary, descriptionAnalysis) {
   totalCount++;
   const ppm2 = summary.pricePerM2;
   const ppm2Reasonable = !ppm2 || (ppm2 >= 40 && ppm2 <= 150);
-  checks.push({ category: 'pricing', label: 'Market-rate pricing', passed: ppm2Reasonable, detail: ppm2Reasonable ? (ppm2 ? ppm2 + ' PLN/m² is within normal range' : 'Cannot calculate') : (ppm2 + ' PLN/m² is ' + (ppm2 < 40 ? 'suspiciously low' : 'above market')) });
+  checks.push({ category: 'pricing', label: 'Price per m² check', passed: ppm2Reasonable, detail: ppm2Reasonable ? (ppm2 ? ppm2 + ' PLN/m² is within typical range' : 'Cannot calculate') : (ppm2 + ' PLN/m² is ' + (ppm2 < 40 ? 'unusually low - verify details' : 'on the higher end')) });
   if (ppm2Reasonable) passedCount++;
   
   if (descriptionAnalysis.registrationAllowed !== null && descriptionAnalysis.registrationAllowed !== undefined) {
