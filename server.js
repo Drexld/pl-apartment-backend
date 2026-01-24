@@ -759,46 +759,46 @@ async function discoverNearbyPlaces(address) {
     // Organized by lifestyle needs for expats
     const categories = [
       // Daily Essentials
-      { type: 'supermarket', label: 'Supermarket', icon: 'ðŸ›’', radius: 800, category: 'essentials' },
-      { type: 'convenience_store', label: 'Convenience Store', icon: 'ðŸª', radius: 500, category: 'essentials' },
-      { type: 'pharmacy', label: 'Pharmacy', icon: 'ðŸ’Š', radius: 800, category: 'essentials' },
-      { type: 'bakery', label: 'Bakery', icon: 'ðŸ¥', radius: 600, category: 'essentials' },
+      { type: 'supermarket', label: 'Supermarket', icon: '🛒', radius: 800, category: 'essentials' },
+      { type: 'convenience_store', label: 'Convenience Store', icon: '🏪', radius: 500, category: 'essentials' },
+      { type: 'pharmacy', label: 'Pharmacy', icon: '💊', radius: 800, category: 'essentials' },
+      { type: 'bakery', label: 'Bakery', icon: '🥐', radius: 600, category: 'essentials' },
       
       // Transit & Mobility
-      { type: 'subway_station', label: 'Metro', icon: 'ðŸš‡', radius: 1000, category: 'transit' },
-      { type: 'transit_station', label: 'Tram/Bus Stop', icon: 'ðŸš‹', radius: 500, category: 'transit' },
-      { type: 'train_station', label: 'Train Station', icon: 'ðŸš†', radius: 2000, category: 'transit' },
+      { type: 'subway_station', label: 'Metro', icon: '🚇', radius: 1000, category: 'transit' },
+      { type: 'transit_station', label: 'Tram/Bus Stop', icon: '🚋', radius: 500, category: 'transit' },
+      { type: 'train_station', label: 'Train Station', icon: '🚆', radius: 2000, category: 'transit' },
       
       // Health & Fitness
-      { type: 'gym', label: 'Gym', icon: 'ðŸ‹ï¸', radius: 1000, category: 'health' },
-      { type: 'doctor', label: 'Doctor/Clinic', icon: 'ðŸ‘¨â€âš•ï¸', radius: 1500, category: 'health' },
-      { type: 'hospital', label: 'Hospital', icon: 'ðŸ¥', radius: 3000, category: 'health' },
-      { type: 'dentist', label: 'Dentist', icon: 'ðŸ¦·', radius: 1500, category: 'health' },
+      { type: 'gym', label: 'Gym', icon: '🏋️', radius: 1000, category: 'health' },
+      { type: 'doctor', label: 'Doctor/Clinic', icon: '👨‍⚕️', radius: 1500, category: 'health' },
+      { type: 'hospital', label: 'Hospital', icon: '🏥', radius: 3000, category: 'health' },
+      { type: 'dentist', label: 'Dentist', icon: '🦷', radius: 1500, category: 'health' },
       
       // Food & Dining
-      { type: 'restaurant', label: 'Restaurant', icon: 'ðŸ½ï¸', radius: 600, category: 'dining' },
-      { type: 'cafe', label: 'CafÃ©', icon: 'â˜•', radius: 500, category: 'dining' },
-      { type: 'bar', label: 'Bar/Pub', icon: 'ðŸº', radius: 800, category: 'nightlife' },
-      { type: 'night_club', label: 'Nightclub', icon: 'ðŸŽ‰', radius: 1500, category: 'nightlife' },
+      { type: 'restaurant', label: 'Restaurant', icon: '🍽️', radius: 600, category: 'dining' },
+      { type: 'cafe', label: 'Café', icon: '☕', radius: 500, category: 'dining' },
+      { type: 'bar', label: 'Bar/Pub', icon: '🍺', radius: 800, category: 'nightlife' },
+      { type: 'night_club', label: 'Nightclub', icon: '🎉', radius: 1500, category: 'nightlife' },
       
       // Recreation & Lifestyle
-      { type: 'park', label: 'Park', icon: 'ðŸŒ³', radius: 800, category: 'recreation' },
-      { type: 'shopping_mall', label: 'Shopping Mall', icon: 'ðŸ›ï¸', radius: 2000, category: 'shopping' },
-      { type: 'movie_theater', label: 'Cinema', icon: 'ðŸŽ¬', radius: 2000, category: 'entertainment' },
+      { type: 'park', label: 'Park', icon: '🌳', radius: 800, category: 'recreation' },
+      { type: 'shopping_mall', label: 'Shopping Mall', icon: '🏛️', radius: 2000, category: 'shopping' },
+      { type: 'movie_theater', label: 'Cinema', icon: '🎬', radius: 2000, category: 'entertainment' },
       
       // Family & Kids
-      { type: 'school', label: 'School', icon: 'ðŸ«', radius: 1000, category: 'family' },
-      { type: 'playground', label: 'Playground', icon: 'ðŸ›', radius: 600, category: 'family' },
+      { type: 'school', label: 'School', icon: '🏫', radius: 1000, category: 'family' },
+      { type: 'playground', label: 'Playground', icon: '🛝', radius: 600, category: 'family' },
       
       // Services
-      { type: 'bank', label: 'Bank', icon: 'ðŸ¦', radius: 1000, category: 'services' },
-      { type: 'atm', label: 'ATM', icon: 'ðŸ’³', radius: 500, category: 'services' },
-      { type: 'post_office', label: 'Post Office', icon: 'ðŸ“®', radius: 1500, category: 'services' },
-      { type: 'laundry', label: 'Laundry', icon: 'ðŸ§º', radius: 800, category: 'services' },
+      { type: 'bank', label: 'Bank', icon: '🏦', radius: 1000, category: 'services' },
+      { type: 'atm', label: 'ATM', icon: '💳', radius: 500, category: 'services' },
+      { type: 'post_office', label: 'Post Office', icon: '📮', radius: 1500, category: 'services' },
+      { type: 'laundry', label: 'Laundry', icon: '🧺', radius: 800, category: 'services' },
       
       // Pets
-      { type: 'veterinary_care', label: 'Vet', icon: 'ðŸ¾', radius: 2000, category: 'pets' },
-      { type: 'pet_store', label: 'Pet Store', icon: 'ðŸ•', radius: 1500, category: 'pets' },
+      { type: 'veterinary_care', label: 'Vet', icon: '🐾', radius: 2000, category: 'pets' },
+      { type: 'pet_store', label: 'Pet Store', icon: '🐕', radius: 1500, category: 'pets' },
     ];
 
     // Search for places in parallel (batch to avoid rate limits)
@@ -1032,22 +1032,22 @@ function generateNearbySummary(organized) {
 }
 
 const AMENITY_MAP = {
-  'taras': { icon: 'ðŸŒ¿', en: 'terrace' },
-  'balkon': { icon: 'ðŸŒ‡', en: 'balcony' },
-  'meble': { icon: 'ðŸ›‹ï¸', en: 'furniture' },
-  'pralka': { icon: 'ðŸ§º', en: 'washing machine' },
-  'zmywarka': { icon: 'ðŸ½ï¸', en: 'dishwasher' },
-  'lodÃ³wka': { icon: 'ðŸ§Š', en: 'refrigerator' },
-  'klimatyzacja': { icon: 'â„ï¸', en: 'air conditioning' },
-  'internet': { icon: 'ðŸŒ', en: 'internet' },
-  'teren zamkniÄ™ty': { icon: 'ðŸ”’', en: 'gated area' },
-  'garaÅ¼': { icon: 'ðŸš—', en: 'garage' },
-  'miejsce parkingowe': { icon: 'ðŸ…¿ï¸', en: 'parking space' },
-  'piwnica': { icon: 'ðŸ“¦', en: 'basement' },
-  'winda': { icon: 'ðŸ›—', en: 'elevator' },
-  'ogrÃ³d': { icon: 'ðŸŒ³', en: 'garden' },
-  'monitoring': { icon: 'ðŸ“¹', en: 'monitoring' },
-  'ochrona': { icon: 'ðŸ‘®', en: 'security' },
+  'taras': { icon: '🌿', en: 'terrace' },
+  'balkon': { icon: '🌇', en: 'balcony' },
+  'meble': { icon: '🛋️', en: 'furniture' },
+  'pralka': { icon: '🧺', en: 'washing machine' },
+  'zmywarka': { icon: '🍽️', en: 'dishwasher' },
+  'lodówka': { icon: '🧊', en: 'refrigerator' },
+  'klimatyzacja': { icon: '❄️', en: 'air conditioning' },
+  'internet': { icon: '🌐', en: 'internet' },
+  'teren zamknięty': { icon: '🔒', en: 'gated area' },
+  'garaż': { icon: '🚗', en: 'garage' },
+  'miejsce parkingowe': { icon: '🅿️', en: 'parking space' },
+  'piwnica': { icon: '📦', en: 'basement' },
+  'winda': { icon: '🛗', en: 'elevator' },
+  'ogród': { icon: '🌳', en: 'garden' },
+  'monitoring': { icon: '📹', en: 'monitoring' },
+  'ochrona': { icon: '👮', en: 'security' },
 };
 
 function decorateAmenity(amenity) {
@@ -1351,7 +1351,7 @@ function assessRisk(summary, descriptionAnalysis) {
   }
 
   if (ppm2 && ppm2 < 40) {
-    flags.push('Price per mÂ² seems very low â€” double-check for hidden costs.');
+    flags.push('Price per m² seems very low - double-check for hidden costs.');
     riskScore += 2;
   }
 
