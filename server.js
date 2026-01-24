@@ -54,9 +54,9 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
 
   // DEPOSIT DETECTION
   const depositPatterns = [
-    /(?:deposit|kaucja|depozyt)[^0-9]*?(\d[\d\s,.]*)\s*(?:pln|zÅ‚|zloty)/gi,
-    /(?:refundable|zwrotna)[^0-9]*?(\d[\d\s,.]*)\s*(?:pln|zÅ‚)/gi,
-    /(\d[\d\s,.]*)\s*(?:pln|zÅ‚)[^.]*(?:deposit|kaucja|depozyt)/gi,
+    /(?:deposit|kaucja|depozyt)[^0-9]*?(\d[\d\s,.]*)\s*(?:pln|zł|zloty)/gi,
+    /(?:refundable|zwrotna)[^0-9]*?(\d[\d\s,.]*)\s*(?:pln|zł)/gi,
+    /(\d[\d\s,.]*)\s*(?:pln|zł)[^.]*(?:deposit|kaucja|depozyt)/gi,
   ];
 
   for (const pattern of depositPatterns) {
@@ -74,9 +74,9 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   // METERED UTILITIES DETECTION - ONLY extract if EXPLICITLY stated as "per person" utility costs
   // Be very strict - only match clear "utilities ~X PLN per person" patterns
   const utilityPatterns = [
-    /(?:media|utilities|opÅ‚aty licznikowe)[^0-9]{0,20}(?:ok\.?|okoÅ‚o|approx\.?|~|â‰ˆ)\s*(\d+)(?:\s*-\s*(\d+))?\s*(?:pln|zÅ‚)[^0-9]{0,20}(?:osob|person|miesiÄ™c|month)/gi,
-    /(?:for one person|dla jednej osoby|na 1 osobÄ™)[^0-9]{0,15}(?:ok\.?|okoÅ‚o|~|â‰ˆ)?\s*(\d+)\s*(?:pln|zÅ‚)/gi,
-    /(?:for two|dla dwÃ³ch|na 2 osob)[^0-9]{0,15}(?:ok\.?|okoÅ‚o|~|â‰ˆ)?\s*(\d+)\s*(?:pln|zÅ‚)/gi,
+    /(?:media|utilities|opłaty licznikowe)[^0-9]{0,20}(?:ok\.?|około|approx\.?|~|≈)\s*(\d+)(?:\s*-\s*(\d+))?\s*(?:pln|zł)[^0-9]{0,20}(?:osob|person|miesiąc|month)/gi,
+    /(?:for one person|dla jednej osoby|na 1 osobę)[^0-9]{0,15}(?:ok\.?|około|~|≈)?\s*(\d+)\s*(?:pln|zł)/gi,
+    /(?:for two|dla dwóch|na 2 osob)[^0-9]{0,15}(?:ok\.?|około|~|≈)?\s*(\d+)\s*(?:pln|zł)/gi,
   ];
 
   let utilityMin = null;
@@ -109,9 +109,9 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
 
   // CONTRACT TERMS
   const contractPatterns = [
-    /(\d+)[\s-]*(?:month|miesiÄ…c|miesiÄ™c)[^.]*(?:contract|umowa|minimum)/gi,
-    /(?:minimum|min\.?|at least)[^0-9]*(\d+)[\s-]*(?:month|miesiÄ…c)/gi,
-    /(?:contract|umowa)[^.]*(\d+)[\s-]*(?:month|miesiÄ…c)/gi,
+    /(\d+)[\s-]*(?:month|miesiąc|miesiąc)[^.]*(?:contract|umowa|minimum)/gi,
+    /(?:minimum|min\.?|at least)[^0-9]*(\d+)[\s-]*(?:month|miesiąc)/gi,
+    /(?:contract|umowa)[^.]*(\d+)[\s-]*(?:month|miesiąc)/gi,
   ];
 
   for (const pattern of contractPatterns) {
@@ -142,43 +142,43 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   // REGISTRATION (ZAMELDOWANIE)
   if (combined.includes('zameldowanie') || combined.includes('registration') || combined.includes('meldun')) {
     if (combined.includes('bez zameldowania') || combined.includes('no registration') || 
-        combined.includes('without registration') || combined.includes('nie ma moÅ¼liwoÅ›ci zameld')) {
+        combined.includes('without registration') || combined.includes('nie ma możliwości zameld')) {
       result.registrationAllowed = false;
       result.importantNotes.push('Registration (zameldowanie) NOT possible');
-    } else if (combined.includes('moÅ¼liwoÅ›Ä‡ zameld') || combined.includes('registration possible') ||
-               combined.includes('zameldowanie moÅ¼liwe')) {
+    } else if (combined.includes('możliwość zameld') || combined.includes('registration possible') ||
+               combined.includes('zameldowanie możliwe')) {
       result.registrationAllowed = true;
       result.importantNotes.push('Registration (zameldowanie) possible');
     }
   }
 
   // ADVERTISER TYPE DETECTION
-  if (combined.includes('biuro') || combined.includes('agency') || combined.includes('poÅ›rednik') ||
+  if (combined.includes('biuro') || combined.includes('agency') || combined.includes('pośrednik') ||
       combined.includes('agent') || combined.includes('prowizja') || combined.includes('commission')) {
     result.advertiserType = 'agency';
   } else if (combined.includes('prywat') || combined.includes('private') || combined.includes('owner') ||
-             combined.includes('wÅ‚aÅ›ciciel') || combined.includes('bez prowizji') || 
-             combined.includes('no commission') || combined.includes('bezpoÅ›rednio')) {
+             combined.includes('właściciel') || combined.includes('bez prowizji') || 
+             combined.includes('no commission') || combined.includes('bezpośrednio')) {
     result.advertiserType = 'private';
   }
 
   // PET POLICY
-  if (combined.includes('no pets') || combined.includes('bez zwierzÄ…t') || combined.includes('no animals')) {
+  if (combined.includes('no pets') || combined.includes('bez zwierząt') || combined.includes('no animals')) {
     result.importantNotes.push('No pets allowed');
-  } else if (combined.includes('pets welcome') || combined.includes('zwierzÄ™ta mile') || 
-             combined.includes('pets allowed') || combined.includes('akceptujemy zwierzÄ™ta')) {
+  } else if (combined.includes('pets welcome') || combined.includes('zwierzęta mile') || 
+             combined.includes('pets allowed') || combined.includes('akceptujemy zwierzęta')) {
     result.importantNotes.push('Pets allowed');
   }
 
   // SMOKING POLICY
-  if (combined.includes('no smoking') || combined.includes('niepalÄ…cych') || combined.includes('zakaz palenia')) {
+  if (combined.includes('no smoking') || combined.includes('niepalących') || combined.includes('zakaz palenia')) {
     result.importantNotes.push('Non-smokers only');
   }
 
   // STUDENTS
-  if (combined.includes('no students') || combined.includes('bez studentÃ³w')) {
+  if (combined.includes('no students') || combined.includes('bez studentów')) {
     result.importantNotes.push('Not renting to students');
-  } else if (combined.includes('students welcome') || combined.includes('dla studentÃ³w') ||
+  } else if (combined.includes('students welcome') || combined.includes('dla studentów') ||
              combined.includes('studenci mile widziani')) {
     result.importantNotes.push('Student-friendly');
   }
@@ -196,11 +196,11 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
     // Bad contexts to exclude
     const badPatterns = [
       /lini[ae]|line|bus|autobus|tramwaj|tram|metro/,
-      /\d+\s*m[Â²2\s]|metr|square/,  // Square meters
-      /floor|piÄ™tro|piÄ™tr/,
-      /km|kilom|odlegÅ‚|distance|od\s+/,
+      /\d+\s*m[²2\s]|metr|square/,  // Square meters
+      /floor|piętro|piętr/,
+      /km|kilom|odległ|distance|od\s+/,
       /rok|year|lat\s/,
-      /osÃ³b|person|people|mieszk/,  // Number of people
+      /osób|person|people|mieszk/,  // Number of people
       /numer|number|nr\s/,
       /id[:\s]/,
       /telefon|phone|tel[:\.\s]/,
@@ -210,8 +210,8 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   };
   
   // Internet fee - must be explicitly labeled
-  const internetMatch = combined.match(/internet[^0-9]{0,30}?(\d{2,3})\s*(?:pln|zÅ‚)/i) ||
-                        combined.match(/(\d{2,3})\s*(?:pln|zÅ‚)[^.]{0,20}internet/i);
+  const internetMatch = combined.match(/internet[^0-9]{0,30}?(\d{2,3})\s*(?:pln|zł)/i) ||
+                        combined.match(/(\d{2,3})\s*(?:pln|zł)[^.]{0,20}internet/i);
   if (internetMatch) {
     const amount = parseInt(internetMatch[1], 10);
     const matchIndex = combined.indexOf(internetMatch[0]);
@@ -221,8 +221,8 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   }
 
   // TV/Cable fee - must be explicitly labeled
-  const tvMatch = combined.match(/(?:tv|telewizj|cable|kablÃ³w)[^0-9]{0,20}?(\d{2,3})\s*(?:pln|zÅ‚)/i) ||
-                  combined.match(/(\d{2,3})\s*(?:pln|zÅ‚)[^.]{0,15}(?:tv|telewizj|cable)/i);
+  const tvMatch = combined.match(/(?:tv|telewizj|cable|kablów)[^0-9]{0,20}?(\d{2,3})\s*(?:pln|zł)/i) ||
+                  combined.match(/(\d{2,3})\s*(?:pln|zł)[^.]{0,15}(?:tv|telewizj|cable)/i);
   if (tvMatch && !result.additionalFees.some(f => f.type === 'internet')) {
     const amount = parseInt(tvMatch[1], 10);
     const matchIndex = combined.indexOf(tvMatch[0]);
@@ -231,8 +231,8 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
     }
   }
 
-  // Combined Internet + TV pattern (like "internet + TV â€“ 120 PLN")
-  const comboMatch = combined.match(/internet[^0-9]{0,10}(?:\+|and|oraz|i)[^0-9]{0,10}(?:tv|telewizj|upc|cable)[^0-9]{0,15}?(\d{2,3})\s*(?:pln|zÅ‚)/i);
+  // Combined Internet + TV pattern (like "internet + TV - 120 PLN")
+  const comboMatch = combined.match(/internet[^0-9]{0,10}(?:\+|and|oraz|i)[^0-9]{0,10}(?:tv|telewizj|upc|cable)[^0-9]{0,15}?(\d{2,3})\s*(?:pln|zł)/i);
   if (comboMatch) {
     const amount = parseInt(comboMatch[1], 10);
     if (amount >= 60 && amount <= 250) {
@@ -243,8 +243,8 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   }
 
   // Parking fee - must be explicitly about parking cost
-  const parkingMatch = combined.match(/(?:parking|garaÅ¼|garage|miejsce postojowe|miejsce garaÅ¼owe)[^0-9]{0,25}?(\d{2,3})\s*(?:pln|zÅ‚)/i) ||
-                       combined.match(/(\d{2,3})\s*(?:pln|zÅ‚)[^.]{0,20}(?:parking|garaÅ¼|garage|postojow)/i);
+  const parkingMatch = combined.match(/(?:parking|garaż|garage|miejsce postojowe|miejsce garażowe)[^0-9]{0,25}?(\d{2,3})\s*(?:pln|zł)/i) ||
+                       combined.match(/(\d{2,3})\s*(?:pln|zł)[^.]{0,20}(?:parking|garaż|garage|postojow)/i);
   if (parkingMatch) {
     const amount = parseInt(parkingMatch[1], 10);
     const matchIndex = combined.indexOf(parkingMatch[0]);
@@ -258,11 +258,11 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   result.meteredFeeTypes = [];
   
   const meteredPatterns = [
-    { pattern: /(?:meter|licznik|wedÅ‚ug zuÅ¼ycia|wg zuÅ¼ycia|according to consumption|based on consumption|faktyczne zuÅ¼ycie)/gi, type: 'general' },
-    { pattern: /(?:electricity|prÄ…d|elektryczn)[^.]*(?:meter|licznik|zuÅ¼yci|consumption)/gi, type: 'electricity' },
-    { pattern: /(?:gas|gaz)[^.]*(?:meter|licznik|zuÅ¼yci|consumption)/gi, type: 'gas' },
-    { pattern: /(?:water|woda|wod)[^.]*(?:meter|licznik|zuÅ¼yci|consumption)/gi, type: 'water' },
-    { pattern: /(?:meter fees|opÅ‚aty licznikowe|media wedÅ‚ug)/gi, type: 'general' },
+    { pattern: /(?:meter|licznik|według zużycia|wg zużycia|according to consumption|based on consumption|faktyczne zużycie)/gi, type: 'general' },
+    { pattern: /(?:electricity|prąd|elektryczn)[^.]*(?:meter|licznik|zużyci|consumption)/gi, type: 'electricity' },
+    { pattern: /(?:gas|gaz)[^.]*(?:meter|licznik|zużyci|consumption)/gi, type: 'gas' },
+    { pattern: /(?:water|woda|wod)[^.]*(?:meter|licznik|zużyci|consumption)/gi, type: 'water' },
+    { pattern: /(?:meter fees|opłaty licznikowe|media według)/gi, type: 'general' },
   ];
   
   for (const { pattern, type } of meteredPatterns) {
@@ -277,7 +277,7 @@ function parseDescriptionForHiddenInfo(descriptionPL, descriptionEN) {
   // If we detected metered fees but didn't catch specific types, mark as general utilities
   if (result.hasMeteredFees && result.meteredFeeTypes.length === 0) {
     // Check for specific mentions even without meter keywords
-    if (combined.includes('elektryczn') || combined.includes('electricity') || combined.includes('prÄ…d')) {
+    if (combined.includes('elektryczn') || combined.includes('electricity') || combined.includes('prąd')) {
       result.meteredFeeTypes.push('electricity');
     }
     if (combined.includes('gaz') || combined.includes('gas')) {
@@ -446,16 +446,16 @@ function extractListingIntelligence($, html) {
     /"priceHistory"[:\s]*\[(.*?)\]/i,
     /"previousPrice"[:\s]*(\d+)/i,
     /cena poprzednia[:\s]*(\d[\d\s]*)/i,
-    /obniÅ¼ka[:\s]*(\d+)/i,
-    /price drop|obniÅ¼ono|reduced/i,
+    /obniżka[:\s]*(\d+)/i,
+    /price drop|obniżono|reduced/i,
   ];
 
   // Check for price drop indicators
-  if (/obniÅ¼ka|obniÅ¼ono|reduced|price drop|przecena/i.test(bodyText)) {
+  if (/obniżka|obniżono|reduced|price drop|przecena/i.test(bodyText)) {
     result.priceDropped = true;
     
     // Try to extract previous price
-    const prevPriceMatch = bodyText.match(/(?:poprzednia cena|previous price|byÅ‚o)[:\s]*(\d[\d\s]*)\s*(?:pln|zÅ‚)/i);
+    const prevPriceMatch = bodyText.match(/(?:poprzednia cena|previous price|było)[:\s]*(\d[\d\s]*)\s*(?:pln|zł)/i);
     if (prevPriceMatch) {
       result.previousPrice = parseInt(prevPriceMatch[1].replace(/\s/g, ''), 10);
     }
@@ -1149,15 +1149,15 @@ async function parseOtodom($, url, baseLocationText, rawHtml) {
 
   const area = getProp('powierzchnia');
   const rooms = getProp('liczba pokoi') || product.numberOfRooms;
-  const availableFrom = getProp('dostÄ™pne od') || getProp('available from') || null;
+  const availableFrom = getProp('dostępne od') || getProp('available from') || null;
   const admin = getProp('czynsz');
   const deposit = getProp('kaucja');
-  const advertiserTypeRaw = getProp('typ ogÅ‚oszeniodawcy') || getProp('advertiser type') || null;
+  const advertiserTypeRaw = getProp('typ ogłoszeniodawcy') || getProp('advertiser type') || getProp('typ') || null;
 
   const infoAdditional = getProp('informacje dodatkowe') || '';
-  const equip = getProp('wyposaÅ¼enie') || '';
+  const equip = getProp('wyposażenie') || '';
   const media = getProp('media') || '';
-  const safety = getProp('bezpieczeÅ„stwo') || '';
+  const safety = getProp('bezpieczeństwo') || '';
   const security = getProp('zabezpieczenia') || '';
 
   const amenitiesRaw = (infoAdditional + ', ' + equip + ', ' + media + ', ' + safety + ', ' + security)
@@ -1294,7 +1294,7 @@ function generateInsights(summary) {
   const insights = [];
 
   if (summary.pricePerM2) {
-    insights.push('Estimated price per mÂ²: ' + summary.pricePerM2 + ' PLN (rent + admin, approx.).');
+    insights.push('Estimated price per m²: ' + summary.pricePerM2 + ' PLN (rent + admin, approx.).');
   }
 
   if (!summary.adminPLN) {
@@ -1328,7 +1328,7 @@ function assessRisk(summary, descriptionAnalysis) {
     const inc = inconsistencies[i];
     if (inc.severity === 'high') {
       riskScore += 3;
-      flags.push('âš ï¸ ' + inc.message);
+      flags.push('26a0Fe0f ' + inc.message);
     } else if (inc.severity === 'medium') {
       riskScore += 2;
       flags.push(inc.message);
@@ -1336,7 +1336,7 @@ function assessRisk(summary, descriptionAnalysis) {
   }
 
   if (rent && deposit && deposit > 2 * rent) {
-    flags.push('High deposit: more than 2Ã— monthly rent.');
+    flags.push('High deposit: more than 2× monthly rent.');
     riskScore += 2;
   }
 
@@ -1346,7 +1346,7 @@ function assessRisk(summary, descriptionAnalysis) {
   }
 
   if (ppm2 && ppm2 > 150) {
-    flags.push('Price per mÂ² seems high.');
+    flags.push('Price per m² seems high.');
     riskScore += 2;
   }
 
